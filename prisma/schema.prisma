@@ -13,9 +13,20 @@ datasource db {
 }
 
 model User {
-  id    String  @id @default(uuid())
-  email String  @unique
-  name  String?
+  id       String     @id @default(uuid())
+  email    String     @unique
+  password String
+  name     String?
+  roles    UserRole[]
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role
+
+  @@unique([userId, role])
 }
 
 model Customer {
@@ -23,4 +34,9 @@ model Customer {
   email    String @unique
   password String
   name     String
+}
+
+enum Role {
+  ADMIN
+  CUSTOMER
 }

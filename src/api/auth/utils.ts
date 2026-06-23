@@ -1,6 +1,6 @@
 import { Request, Response, CookieOptions } from 'express';
 import { sign, verify } from 'jsonwebtoken';
-import { Customer } from '../../generated/prisma/client';
+import { Customer, Role } from '../../generated/prisma/client';
 
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'access_secret';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'refresh_secret';
@@ -12,7 +12,7 @@ export interface RequestCustomer {
   email: string;
   name: string;
   sessionId: string;
-  source: string;
+  role: Role;
 }
 
 export function isCrossSiteFromLocalhost(req: Request): boolean {
@@ -32,27 +32,27 @@ export function getRefreshCookieOptions(req: Request): CookieOptions {
 }
 
 export const createAccessToken = (
-  customer: Omit<Customer, 'password'>,
+  user: { id: string; email: string; name?: string | null },
   sessionId: string,
-  source: string,
+  role: Role
 ): string => {
   return sign(
     {
-      id: customer.id,
-      email: customer.email,
-      name: customer.name,
+      id: user.id,
+      email: user.email,
+      name: user.name || '',
       sessionId,
-      source,
+      role,
     } as RequestCustomer,
     ACCESS_TOKEN_SECRET,
     {
-      expiresIn: source === 'desktop' ? '24h' : '15m',
+      expiresIn: "24h",
     },
   );
 };
 
-export const createRefreshToken = (userId: string, sessionId: string, source: string): string => {
-  return sign({ userId, sessionId, source }, REFRESH_TOKEN_SECRET, {
+export const createRefreshToken = (userId: string, sessionId: string,): string => {
+  return sign({ userId, sessionId }, REFRESH_TOKEN_SECRET, {
     expiresIn: '7d',
   });
 };
@@ -73,11 +73,10 @@ export const verifyAccessToken = (token: string): RequestCustomer => {
 
 export const verifyRefreshToken = (
   token: string,
-): { userId: string; sessionId: string; source: string } => {
+): { userId: string; sessionId: string } => {
   return verify(token, REFRESH_TOKEN_SECRET) as {
     userId: string;
     sessionId: string;
-    source: string;
   };
 };
 
