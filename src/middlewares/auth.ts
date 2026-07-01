@@ -1,19 +1,61 @@
 import { Request, Response, NextFunction } from 'express';
 import AppError from '../models/AppError';
 import { Role } from '../generated/prisma/enums';
-import { User, UserRole } from '../generated/prisma/client';
+import { User, UserRole, Customer } from '../generated/prisma/client';
 import { verifyAccessToken } from '../api/auth/utils';
 import { prisma } from '../lib/prisma';
 
 declare global {
   namespace Express {
     interface Request {
-      user?: User & {
+      user?: (User & {
         roles: UserRole[];
-      };
+      }) | (Customer & {
+        roles: { role: Role }[];
+      });
     }
   }
 }
+
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next(new AppError('Authentication required', 401));
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyAccessToken(token);
+
+    if (decoded.role === Role.CUSTOMER) {
+      const customer = await prisma.customer.findUnique({
+        where: { id: decoded.id },
+      });
+      if (!customer) {
+        return next(new AppError('User not found', 401));
+      }
+      req.user = {
+        ...customer,
+        roles: [{ role: Role.CUSTOMER }],
+      } as any;
+    } else {
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        include: {
+          roles: true,
+        },
+      });
+      if (!user) {
+        return next(new AppError('User not found', 401));
+      }
+      req.user = user;
+    }
+
+    next();
+  } catch (error: any) {
+    return next(new AppError('Invalid or expired token', 401));
+  }
+};
 
 export const hasAuth = ({
   allRoles = [],

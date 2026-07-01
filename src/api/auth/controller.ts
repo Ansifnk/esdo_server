@@ -103,10 +103,15 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 
 export const registerAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, saloonId, saloonName, saloonLocation } = req.body;
 
     if (!email || !password) {
       res.json(new AppResponse('Email and password are required', {}, 400));
+      return;
+    }
+
+    if (!saloonId && (!saloonName || !saloonLocation)) {
+      res.json(new AppResponse('Either saloonId or both saloonName and saloonLocation are required', {}, 400));
       return;
     }
 
@@ -118,6 +123,16 @@ export const registerAdmin = async (req: Request, res: Response): Promise<void> 
     if (existingUser) {
       res.json(new AppResponse('User already exists', {}, 400));
       return;
+    }
+
+    if (saloonId) {
+      const existingSaloon = await prisma.saloon.findUnique({
+        where: { id: saloonId },
+      });
+      if (!existingSaloon) {
+        res.json(new AppResponse('Saloon not found', {}, 404));
+        return;
+      }
     }
 
     // Hash the password
@@ -134,9 +149,18 @@ export const registerAdmin = async (req: Request, res: Response): Promise<void> 
             role: Role.ADMIN,
           },
         },
+        saloon: saloonId
+          ? { connect: { id: saloonId } }
+          : {
+              create: {
+                name: saloonName,
+                location: saloonLocation,
+              },
+            },
       },
       include: {
         roles: true,
+        saloon: true,
       },
     });
 

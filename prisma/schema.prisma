@@ -13,30 +13,48 @@ datasource db {
 }
 
 model User {
-  id       String     @id @default(uuid())
-  email    String     @unique
-  password String
-  name     String?
-  roles    UserRole[]
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  name      String
+  roles     UserRole[]
+  saloonId  String?
+  saloon    Saloon?    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model UserRole {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, role])
 }
 
 model Customer {
-  id       String @id @default(uuid())
-  email    String @unique
-  password String
-  name     String
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Saloon {
+  id        String   @id @default(uuid())
+  name      String
+  location  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
 }
 
 enum Role {
   ADMIN
+  SUPER_ADMIN
   CUSTOMER
 }

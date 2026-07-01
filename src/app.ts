@@ -1,6 +1,8 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import authRouter from './api/auth';
+import saloonRouter from './api/saloon';
+import feedRouter from './api/feed';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -13,11 +15,13 @@ app.use(responseMiddleware);
 
 // Routes
 app.use('/api/auth', authRouter);
+app.use('/api/saloon', saloonRouter);
+app.use('/api/feed', feedRouter);
 
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const statusCode = err instanceof AppError ? err.statusCode : 500;
+  const statusCode = err instanceof AppError ? err.status : 500;
   const message = err.message || 'Internal Server Error';
   res.json(new AppResponse(message, {}, statusCode));
 });
