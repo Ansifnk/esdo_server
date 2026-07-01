@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { body, param, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import { Role } from '../../generated/prisma/enums';
@@ -6,11 +7,15 @@ import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 export const createSaloon = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, location } = req.body;
-    if (!name || !location) {
-      res.json(new AppResponse('Name and location are required', {}, 400));
+    await body('name').trim().notEmpty().withMessage('Name is required').run(req);
+    await body('location').trim().notEmpty().withMessage('Location is required').run(req);
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
       return;
     }
+
+    const { name, location } = req.body;
 
     const saloon = await prisma.saloon.create({
       data: {
@@ -46,6 +51,14 @@ export const getSaloons = async (req: Request, res: Response): Promise<void> => 
 
 export const getSaloonById = async (req: Request, res: Response): Promise<void> => {
   try {
+    await param('id').isUUID().withMessage('Invalid saloon ID format').run(req);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
+      return;
+    }
+
     const id = req.params.id as string;
     const saloon = await prisma.saloon.findUnique({
       where: { id },
@@ -64,6 +77,16 @@ export const getSaloonById = async (req: Request, res: Response): Promise<void> 
 
 export const updateSaloon = async (req: Request, res: Response): Promise<void> => {
   try {
+    await param('id').isUUID().withMessage('Invalid saloon ID format').run(req);
+    await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
+    await body('location').optional().trim().notEmpty().withMessage('Location cannot be empty').run(req);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
+      return;
+    }
+
     const id = req.params.id as string;
     const { name, location } = req.body;
     const user = req.user;
@@ -112,6 +135,14 @@ export const updateSaloon = async (req: Request, res: Response): Promise<void> =
 
 export const deleteSaloon = async (req: Request, res: Response): Promise<void> => {
   try {
+    await param('id').isUUID().withMessage('Invalid saloon ID format').run(req);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
+      return;
+    }
+
     const id = req.params.id as string;
 
     const existingSaloon = await prisma.saloon.findUnique({

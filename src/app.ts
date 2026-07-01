@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRouter from './api/auth';
 import saloonRouter from './api/saloon';
@@ -9,13 +10,21 @@ import AppError from './models/AppError';
 import AppResponse from './models/AppResponse';
 
 const app = express();
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',')
+      : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://localhost:3001'],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 app.use(responseMiddleware);
 
 // Routes
 app.use('/api/auth', authRouter);
-app.use('/api/saloon', saloonRouter);
+app.use('/api/saloons', saloonRouter);
 app.use('/api/feed', feedRouter);
 
 

@@ -226,3 +226,18 @@ export const loginAdmin = async (req: Request, res: Response): Promise<void> => 
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
   }
 };
+
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.json(new AppResponse('User not found', {}, 404));
+      return;
+    }
+
+    const { password, ...userWithoutPassword } = req.user as any;
+    res.json(new AppResponse('Fetch user profile successful', { user: userWithoutPassword }));
+  } catch (error: any) {
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+  }
+};
+
