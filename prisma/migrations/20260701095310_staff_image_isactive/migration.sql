@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Staff" ADD COLUMN     "image" TEXT NOT NULL DEFAULT '',
+ADD COLUMN     "isActive" BOOLEAN NOT NULL DEFAULT true;

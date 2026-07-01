@@ -51,6 +51,7 @@ model Saloon {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   users     User[]
+  staffs    Staff[]
 }
 
 enum Role {
@@ -66,6 +67,7 @@ model Category {
   subCategories  SubCategory[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+  staffs         Staff[]
 }
 
 model SubCategory {
@@ -76,6 +78,7 @@ model SubCategory {
   category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  staffs      Staff[]
 }
 
 model File {
@@ -92,5 +95,37 @@ model File {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
+}
+
+model Staff {
+  id             String              @id @default(uuid())
+  name           String
+  image          String              @default("")
+  isActive       Boolean             @default(true)
+  serviceGender  ServiceGender       @default(UNI)
+  saloonId       String
+  saloon         Saloon              @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  categories     Category[]
+  subCategories  SubCategory[]
+  availabilities StaffAvailability[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model StaffAvailability {
+  id        String   @id @default(uuid())
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  day       String
+  startTime String
+  endTime   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum ServiceGender {
+  MALE
+  FEMALE
+  UNI
 }
 
