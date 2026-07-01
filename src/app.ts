@@ -4,6 +4,9 @@ import cookieParser from 'cookie-parser';
 import authRouter from './api/auth';
 import saloonRouter from './api/saloon';
 import feedRouter from './api/feed';
+import categoryRouter from './api/category';
+import subCategoryRouter from './api/sub-category';
+import fileRouter from './api/file';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -26,6 +29,10 @@ app.use(responseMiddleware);
 app.use('/api/auth', authRouter);
 app.use('/api/saloons', saloonRouter);
 app.use('/api/feed', feedRouter);
+app.use('/api/categories', categoryRouter);
+app.use('/api/sub-categories', subCategoryRouter);
+app.use('/api/files', fileRouter);
+
 
 
 // Global Error Handler
