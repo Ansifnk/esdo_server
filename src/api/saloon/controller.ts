@@ -32,14 +32,24 @@ export const createSaloon = async (req: Request, res: Response): Promise<void> =
 
 export const getSaloons = async (req: Request, res: Response): Promise<void> => {
   try {
+    const search = req.query.search as string;
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { location: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const pagination = getPagination(req);
     const [saloons, total] = await Promise.all([
       prisma.saloon.findMany({
+        where,
         skip: pagination.offset,
         take: pagination.limit,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.saloon.count(),
+      prisma.saloon.count({ where }),
     ]);
 
     const meta = getPaginationMeta(total, pagination);

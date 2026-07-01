@@ -41,21 +41,27 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
 
 export const getCategories = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { includeSubCategories } = req.query;
+    const { includeSubCategories, search } = req.query;
 
     const includeClause = includeSubCategories === 'true'
       ? { subCategories: { orderBy: { createdAt: 'desc' as const } } }
       : undefined;
 
+    const where: any = {};
+    if (search) {
+      where.name = { contains: search as string, mode: 'insensitive' };
+    }
+
     const pagination = getPagination(req);
     const [categories, total] = await Promise.all([
       prisma.category.findMany({
+        where,
         include: includeClause,
         skip: pagination.offset,
         take: pagination.limit,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.category.count(),
+      prisma.category.count({ where }),
     ]);
 
     const meta = getPaginationMeta(total, pagination);
