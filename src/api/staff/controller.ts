@@ -94,6 +94,20 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
   try {
     const search = req.query.search as string;
     const saloonIdQuery = req.query.saloonId as string;
+    const saloonIdsRaw = req.query.saloonIds || req.query['saloonIds[]'];
+    let saloonIds: string[] = [];
+
+    if (saloonIdsRaw) {
+      if (Array.isArray(saloonIdsRaw)) {
+        saloonIds = saloonIdsRaw.map((id) => String(id).trim()).filter((id) => id.length > 0);
+      } else if (typeof saloonIdsRaw === 'string') {
+        saloonIds = saloonIdsRaw
+          .split(',')
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0);
+      }
+    }
+
     const where: any = {};
 
     const user = req.user;
@@ -103,9 +117,13 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
 
       if (!isSuperAdmin && isAdmin) {
         where.saloonId = (user as any).saloonId;
+      } else if (saloonIds.length > 0) {
+        where.saloonId = { in: saloonIds };
       } else if (saloonIdQuery) {
         where.saloonId = saloonIdQuery;
       }
+    } else if (saloonIds.length > 0) {
+      where.saloonId = { in: saloonIds };
     } else if (saloonIdQuery) {
       where.saloonId = saloonIdQuery;
     }
