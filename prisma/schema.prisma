@@ -150,6 +150,8 @@ model Service {
   categories       Category[]
   subCategories    SubCategory[]
   stylists         Staff[]
+  relatedServices  Service[]     @relation("ServiceToService")
+  relatedTo        Service[]     @relation("ServiceToService")
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }

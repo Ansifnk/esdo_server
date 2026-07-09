@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
+import AppError from '../../models/AppError';
 import { Role, ServiceGender } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
@@ -19,6 +20,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
+    await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -39,6 +41,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       subCategoryIds = [],
       stylistIds = [],
       afterCareMessage = '',
+      relatedServiceIds = [],
     } = req.body;
 
     const user = req.user;
@@ -71,6 +74,20 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    // Verify related services belong to the selected saloon
+    if (relatedServiceIds && relatedServiceIds.length > 0) {
+      const uniqueRelatedServiceIds = [...new Set(relatedServiceIds as string[])];
+      const count = await prisma.service.count({
+        where: {
+          id: { in: uniqueRelatedServiceIds },
+          saloonId: saloonId,
+        },
+      });
+      if (count !== uniqueRelatedServiceIds.length) {
+        throw new AppError('One or more related services do not belong to the selected saloon', 400);
+      }
+    }
+
     // Create service in database
     const service = await prisma.service.create({
       data: {
@@ -92,18 +109,23 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         stylists: {
           connect: stylistIds.map((id: string) => ({ id })),
         },
+        relatedServices: {
+          connect: relatedServiceIds.map((id: string) => ({ id })),
+        },
       },
       include: {
         saloon: true,
         categories: true,
         subCategories: true,
         stylists: true,
+        relatedServices: true,
       },
     });
 
     res.json(new AppResponse('Service created successfully', service, 201));
   } catch (error: any) {
-    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
 
@@ -160,6 +182,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
           categories: true,
           subCategories: true,
           stylists: true,
+          relatedServices: true,
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -171,7 +194,8 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     const meta = getPaginationMeta(total, pagination);
     res.json(new AppResponse('Services retrieved successfully', services, 200, meta));
   } catch (error: any) {
-    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
 
@@ -193,6 +217,7 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
         categories: true,
         subCategories: true,
         stylists: true,
+        relatedServices: true,
       },
     });
 
@@ -203,7 +228,8 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
 
     res.json(new AppResponse('Service retrieved successfully', service, 200));
   } catch (error: any) {
-    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
 
@@ -222,6 +248,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
+    await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -243,6 +270,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       subCategoryIds,
       stylistIds,
       afterCareMessage,
+      relatedServiceIds,
     } = req.body;
 
     const user = req.user;
@@ -284,6 +312,30 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
+    // Verify related services belong to the target saloon
+    const targetSaloonId = saloonId !== undefined ? saloonId : existingService.saloonId;
+    const servicesToCheck = relatedServiceIds !== undefined 
+      ? relatedServiceIds 
+      : (saloonId !== undefined && saloonId !== existingService.saloonId 
+          ? (await prisma.service.findUnique({
+              where: { id },
+              select: { relatedServices: { select: { id: true } } }
+            }))?.relatedServices.map(s => s.id) || []
+          : []);
+
+    if (servicesToCheck.length > 0) {
+      const uniqueServicesToCheck = [...new Set(servicesToCheck as string[])];
+      const count = await prisma.service.count({
+        where: {
+          id: { in: uniqueServicesToCheck },
+          saloonId: targetSaloonId,
+        },
+      });
+      if (count !== uniqueServicesToCheck.length) {
+        throw new AppError('One or more related services do not belong to the selected saloon', 400);
+      }
+    }
+
     const updatedService = await prisma.service.update({
       where: { id },
       data: {
@@ -305,18 +357,23 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         stylists: stylistIds !== undefined ? {
           set: stylistIds.map((sid: string) => ({ id: sid })),
         } : undefined,
+        relatedServices: relatedServiceIds !== undefined ? {
+          set: relatedServiceIds.map((rsid: string) => ({ id: rsid })),
+        } : undefined,
       },
       include: {
         saloon: true,
         categories: true,
         subCategories: true,
         stylists: true,
+        relatedServices: true,
       },
     });
 
     res.json(new AppResponse('Service updated successfully', updatedService, 200));
   } catch (error: any) {
-    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
 
@@ -367,6 +424,7 @@ export const deleteService = async (req: Request, res: Response): Promise<void> 
 
     res.json(new AppResponse('Service deleted successfully', {}, 200));
   } catch (error: any) {
-    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
