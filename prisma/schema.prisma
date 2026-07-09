@@ -145,6 +145,7 @@ model Service {
   primaryImage     String        @default("")
   images           String[]      @default([])
   afterCareMessage String        @default("")
+  duration         Int           @default(0)
   saloonId         String
   saloon           Saloon        @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories       Category[]

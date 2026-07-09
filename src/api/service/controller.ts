@@ -20,6 +20,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
+    await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -41,6 +42,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       subCategoryIds = [],
       stylistIds = [],
       afterCareMessage = '',
+      duration = 0,
       relatedServiceIds = [],
     } = req.body;
 
@@ -99,6 +101,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         primaryImage,
         images,
         afterCareMessage,
+        duration,
         saloon: { connect: { id: saloonId } },
         categories: {
           connect: categoryIds.map((id: string) => ({ id })),
@@ -248,6 +251,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
+    await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -270,6 +274,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       subCategoryIds,
       stylistIds,
       afterCareMessage,
+      duration,
       relatedServiceIds,
     } = req.body;
 
@@ -348,6 +353,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         images: images !== undefined ? images : existingService.images,
         serviceGender: serviceGender !== undefined ? serviceGender : existingService.serviceGender,
         afterCareMessage: afterCareMessage !== undefined ? afterCareMessage : existingService.afterCareMessage,
+        duration: duration !== undefined ? duration : existingService.duration,
         categories: categoryIds !== undefined ? {
           set: categoryIds.map((cid: string) => ({ id: cid })),
         } : undefined,
