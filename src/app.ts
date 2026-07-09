@@ -11,6 +11,7 @@ import staffRouter from './api/staff';
 import serviceRouter from './api/service';
 import packageRouter from './api/package';
 import adminsRouter from './api/admins';
+import offerRouter from './api/offer';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -40,6 +41,7 @@ app.use('/api/staff', staffRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/packages', packageRouter);
 app.use('/api/admins', adminsRouter);
+app.use('/api/offers', offerRouter);
 
 
 

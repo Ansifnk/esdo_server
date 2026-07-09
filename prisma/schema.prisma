@@ -54,6 +54,7 @@ model Saloon {
   staffs    Staff[]
   services  Service[]
   packages  Package[]
+  offers    Offer[]
 }
 
 enum Role {
@@ -155,6 +156,7 @@ model Service {
   relatedServices  Service[]     @relation("ServiceToService")
   relatedTo        Service[]     @relation("ServiceToService")
   packages         Package[]
+  offers           Offer[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -170,6 +172,37 @@ model Package {
   saloonId      String
   saloon        Saloon    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   services      Service[]
+  offers        Offer[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+enum OfferType {
+  BANNER
+  COUPON
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Offer {
+  id            String       @id @default(uuid())
+  name          String
+  description   String       @default("")
+  type          OfferType
+  bannerImage   String       @default("")
+  couponCode    String       @default("")
+  discountType  DiscountType @default(PERCENTAGE)
+  discountValue Float        @default(0)
+  isActive      Boolean      @default(true)
+  startDate     DateTime?
+  endDate       DateTime?
+  saloonId      String?
+  saloon        Saloon?      @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  services      Service[]
+  packages      Package[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
