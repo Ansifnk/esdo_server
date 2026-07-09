@@ -45,11 +45,11 @@ model Customer {
 }
 
 model Saloon {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   location  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   users     User[]
   staffs    Staff[]
   services  Service[]
@@ -62,26 +62,26 @@ enum Role {
 }
 
 model Category {
-  id             String        @id @default(uuid())
-  name           String
-  image          String        @default("")
-  subCategories  SubCategory[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  staffs         Staff[]
-  services       Service[]
+  id            String        @id @default(uuid())
+  name          String
+  image         String        @default("")
+  subCategories SubCategory[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  staffs        Staff[]
+  services      Service[]
 }
 
 model SubCategory {
-  id          String   @id @default(uuid())
-  name        String
-  image       String   @default("")
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  staffs      Staff[]
-  services    Service[]
+  id         String    @id @default(uuid())
+  name       String
+  image      String    @default("")
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  staffs     Staff[]
+  services   Service[]
 }
 
 model File {
@@ -103,6 +103,8 @@ model File {
 model Staff {
   id             String              @id @default(uuid())
   name           String
+  phone          String              @default("")
+  languages      String[]            @default([])
   image          String              @default("")
   isActive       Boolean             @default(true)
   serviceGender  ServiceGender       @default(UNI)
@@ -134,21 +136,20 @@ enum ServiceGender {
 }
 
 model Service {
-  id             String        @id @default(uuid())
-  name           String
-  description    String
-  price          Float
-  discountPrice  Float
-  serviceGender  ServiceGender @default(UNI)
-  primaryImage   String        @default("")
-  images         String[]      @default([])
-  afterCareMessage String     @default("")
-  saloonId       String
-  saloon         Saloon        @relation(fields: [saloonId], references: [id], onDelete: Cascade)
-  categories     Category[]
-  subCategories  SubCategory[]
-  stylists       Staff[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id               String        @id @default(uuid())
+  name             String
+  description      String
+  price            Float
+  discountPrice    Float
+  serviceGender    ServiceGender @default(UNI)
+  primaryImage     String        @default("")
+  images           String[]      @default([])
+  afterCareMessage String        @default("")
+  saloonId         String
+  saloon           Saloon        @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  categories       Category[]
+  subCategories    SubCategory[]
+  stylists         Staff[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
-
