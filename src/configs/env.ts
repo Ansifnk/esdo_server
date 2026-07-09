@@ -9,3 +9,7 @@ export const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || '';
 export const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 export const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || '';
 export const AWS_PUBLIC_S3_URL = process.env.AWS_PUBLIC_S3_URL || '';
+
+export const PORT = Number(process.env.PORT) || 3000;
+export const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
+

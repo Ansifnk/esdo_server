@@ -16,12 +16,13 @@ import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
 import AppResponse from './models/AppResponse';
+import { CORS_ORIGIN, PORT } from './configs/env';
 
 const app = express();
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(',')
+    origin: CORS_ORIGIN
+      ? CORS_ORIGIN.split(',')
       : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://localhost:3001'],
     credentials: true,
   })
@@ -52,7 +53,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.json(new AppResponse(message, {}, statusCode));
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
