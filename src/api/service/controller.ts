@@ -18,6 +18,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     await body('categoryIds').optional().isArray().withMessage('categoryIds must be an array').run(req);
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
+    await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -37,6 +38,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       categoryIds = [],
       subCategoryIds = [],
       stylistIds = [],
+      afterCareMessage = '',
     } = req.body;
 
     const user = req.user;
@@ -79,6 +81,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         serviceGender,
         primaryImage,
         images,
+        afterCareMessage,
         saloon: { connect: { id: saloonId } },
         categories: {
           connect: categoryIds.map((id: string) => ({ id })),
@@ -218,6 +221,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     await body('categoryIds').optional().isArray().withMessage('categoryIds must be an array').run(req);
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
+    await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -238,6 +242,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       categoryIds,
       subCategoryIds,
       stylistIds,
+      afterCareMessage,
     } = req.body;
 
     const user = req.user;
@@ -290,6 +295,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         primaryImage: primaryImage !== undefined ? primaryImage : existingService.primaryImage,
         images: images !== undefined ? images : existingService.images,
         serviceGender: serviceGender !== undefined ? serviceGender : existingService.serviceGender,
+        afterCareMessage: afterCareMessage !== undefined ? afterCareMessage : existingService.afterCareMessage,
         categories: categoryIds !== undefined ? {
           set: categoryIds.map((cid: string) => ({ id: cid })),
         } : undefined,

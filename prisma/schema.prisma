@@ -142,6 +142,7 @@ model Service {
   serviceGender  ServiceGender @default(UNI)
   primaryImage   String        @default("")
   images         String[]      @default([])
+  afterCareMessage String     @default("")
   saloonId       String
   saloon         Saloon        @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories     Category[]
