@@ -9,6 +9,7 @@ import subCategoryRouter from './api/sub-category';
 import fileRouter from './api/file';
 import staffRouter from './api/staff';
 import serviceRouter from './api/service';
+import packageRouter from './api/package';
 import adminsRouter from './api/admins';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
@@ -37,6 +38,7 @@ app.use('/api/sub-categories', subCategoryRouter);
 app.use('/api/files', fileRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/services', serviceRouter);
+app.use('/api/packages', packageRouter);
 app.use('/api/admins', adminsRouter);
 
 

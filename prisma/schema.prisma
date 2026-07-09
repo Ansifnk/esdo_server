@@ -53,6 +53,7 @@ model Saloon {
   users     User[]
   staffs    Staff[]
   services  Service[]
+  packages  Package[]
 }
 
 enum Role {
@@ -153,6 +154,22 @@ model Service {
   stylists         Staff[]
   relatedServices  Service[]     @relation("ServiceToService")
   relatedTo        Service[]     @relation("ServiceToService")
+  packages         Package[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+}
+
+model Package {
+  id            String    @id @default(uuid())
+  name          String
+  description   String
+  price         Float
+  discountPrice Float     @default(0)
+  primaryImage  String    @default("")
+  images        String[]  @default([])
+  saloonId      String
+  saloon        Saloon    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  services      Service[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
