@@ -25,10 +25,24 @@ export const generatePresignedPutUrl = async (
   mimeType: string,
   isPrivate: boolean,
   directory: string,
+  savePath?: string,
 ) => {
   const extension = originalName.split('.').pop() || '';
-  const uuid = crypto.randomUUID();
-  const path = `${directory}/${uuid}${extension ? `.${extension}` : ''}`;
+  let path = '';
+  
+  if (savePath) {
+    // If savePath already starts with the directory name, use it directly.
+    // Otherwise, prepend the directory prefix.
+    if (directory && !savePath.startsWith(`${directory}/`)) {
+      path = `${directory}/${savePath}`;
+    } else {
+      path = savePath;
+    }
+  } else {
+    const uuid = crypto.randomUUID();
+    path = `${directory}/${uuid}${extension ? `.${extension}` : ''}`;
+  }
+
   const bucket = AWS_S3_BUCKET;
 
   const command = new PutObjectCommand({
