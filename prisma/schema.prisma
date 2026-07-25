@@ -117,7 +117,7 @@ model Staff {
   image          String                  @default("")
   isActive       Boolean                 @default(true)
   type           StaffType               @default(STYLIST)
-  serviceGender  ServiceGender           @default(UNI)
+  serviceGender  ServiceGender?
   saloonId       String
   saloon         Saloon                  @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories     Category[]
@@ -194,6 +194,7 @@ model Service {
 model Package {
   id            String    @id @default(uuid())
   name          String
+  nickName      String    @default("")
   description   String
   price         Float
   discountPrice Float     @default(0)

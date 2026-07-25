@@ -9,6 +9,7 @@ import { getPagination, getPaginationMeta } from '../../utils/pagination';
 export const createPackage = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
+    await body('nickName').optional().isString().withMessage('nickName must be a string').run(req);
     await body('description').trim().notEmpty().withMessage('Description is required').run(req);
     await body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
@@ -25,6 +26,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
 
     const {
       name,
+      nickName = '',
       description,
       price,
       discountPrice,
@@ -82,6 +84,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
     const pkg = await prisma.package.create({
       data: {
         name,
+        nickName,
         description,
         price,
         discountPrice,
@@ -119,6 +122,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
+        { nickName: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
       ];
     }
@@ -181,6 +185,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
   try {
     await param('id').isUUID().withMessage('Invalid package ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
+    await body('nickName').optional().isString().withMessage('nickName must be a string').run(req);
     await body('description').optional().trim().notEmpty().withMessage('Description cannot be empty').run(req);
     await body('price').optional().isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').optional().isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
@@ -198,6 +203,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
     const id = req.params.id as string;
     const {
       name,
+      nickName,
       description,
       price,
       discountPrice,
@@ -274,6 +280,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
       where: { id },
       data: {
         name: name !== undefined ? name : existingPackage.name,
+        nickName: nickName !== undefined ? nickName : existingPackage.nickName,
         description: description !== undefined ? description : existingPackage.description,
         price: price !== undefined ? price : existingPackage.price,
         discountPrice: discountPrice !== undefined ? discountPrice : existingPackage.discountPrice,

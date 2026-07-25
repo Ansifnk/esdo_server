@@ -48,7 +48,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
     await body('overrides').optional().isArray().withMessage('overrides must be an array').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
-    await body('serviceGender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid serviceGender').run(req);
+    await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
     await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
@@ -57,7 +57,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const {
+    let {
       name,
       phone = '',
       languages = [],
@@ -68,9 +68,17 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       overrides = [],
       image = '',
       isActive = true,
-      serviceGender = ServiceGender.UNI,
+      serviceGender = null,
       type = StaffType.STYLIST,
     } = req.body;
+
+    if (type !== StaffType.STYLIST) {
+      categoryIds = [];
+      subCategoryIds = [];
+      serviceGender = null;
+    } else {
+      serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
+    }
 
     const availError = validateAvailabilities(availabilities);
     if (availError) {
@@ -284,7 +292,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     await body('overrides').optional().isArray().withMessage('overrides must be an array').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
-    await body('serviceGender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid serviceGender').run(req);
+    await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
     await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
@@ -294,7 +302,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     }
 
     const id = req.params.id as string;
-    const { name, phone, languages, saloonId, categoryIds, subCategoryIds, availabilities, overrides, image, isActive, serviceGender, type } = req.body;
+    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, availabilities, overrides, image, isActive, serviceGender, type } = req.body;
 
     if (availabilities !== undefined) {
       const availError = validateAvailabilities(availabilities);
@@ -344,6 +352,17 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
       }
     }
 
+    const targetType = type ?? existingStaff.type;
+    const isStylist = targetType === StaffType.STYLIST;
+
+    if (!isStylist) {
+      categoryIds = [];
+      subCategoryIds = [];
+      serviceGender = null;
+    } else if (serviceGender !== undefined) {
+      serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
+    }
+
     // Execute update in transaction
     await prisma.$transaction(async (tx) => {
       await tx.staff.update({
@@ -355,14 +374,16 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
           saloonId: saloonId ?? existingStaff.saloonId,
           image: image ?? existingStaff.image,
           isActive: isActive ?? existingStaff.isActive,
-          serviceGender: serviceGender ?? existingStaff.serviceGender,
+          serviceGender: isStylist
+            ? (serviceGender !== undefined ? serviceGender : existingStaff.serviceGender)
+            : null,
           type: type ?? existingStaff.type,
-          categories: categoryIds !== undefined ? {
-            set: categoryIds.map((cid: string) => ({ id: cid })),
-          } : undefined,
-          subCategories: subCategoryIds !== undefined ? {
-            set: subCategoryIds.map((scid: string) => ({ id: scid })),
-          } : undefined,
+          categories: !isStylist
+            ? { set: [] }
+            : (categoryIds !== undefined ? { set: categoryIds.map((cid: string) => ({ id: cid })) } : undefined),
+          subCategories: !isStylist
+            ? { set: [] }
+            : (subCategoryIds !== undefined ? { set: subCategoryIds.map((scid: string) => ({ id: scid })) } : undefined),
         },
       });
 
