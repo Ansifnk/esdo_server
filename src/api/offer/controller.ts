@@ -3,13 +3,14 @@ import { body, param, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { Role, OfferType, DiscountType } from '../../generated/prisma/enums';
+import { Role, OfferType, DiscountType, ServiceGender } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 export const createOffer = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
     await body('type').isIn(Object.values(OfferType)).withMessage('Invalid offer type').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
     await body('description').optional().trim().run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('startDate').optional().isISO8601().withMessage('Invalid start date').run(req);
@@ -27,6 +28,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       name,
       description = '',
       type,
+      gender = ServiceGender.UNI,
       bannerImage = '',
       couponCode = '',
       discountType = DiscountType.PERCENTAGE,
@@ -137,6 +139,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
         name,
         description,
         type,
+        gender,
         bannerImage: type === OfferType.BANNER ? bannerImage : '',
         couponCode: type === OfferType.COUPON ? couponCode : '',
         discountType: discountType,
@@ -170,6 +173,7 @@ export const getOffers = async (req: Request, res: Response): Promise<void> => {
   try {
     const search = req.query.search as string;
     const type = req.query.type as OfferType;
+    const gender = req.query.gender as ServiceGender;
     const saloonIdQuery = req.query.saloonId as string;
     const isActive = req.query.isActive as string;
 
@@ -203,6 +207,10 @@ export const getOffers = async (req: Request, res: Response): Promise<void> => {
 
     if (type) {
       andConditions.push({ type });
+    }
+
+    if (gender && Object.values(ServiceGender).includes(gender)) {
+      andConditions.push({ gender });
     }
 
     if (isActive !== undefined) {
@@ -293,6 +301,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
     await param('id').isUUID().withMessage('Invalid offer ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
     await body('type').optional().isIn(Object.values(OfferType)).withMessage('Invalid offer type').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
     await body('description').optional().trim().run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('startDate').optional().isISO8601().withMessage('Invalid start date').run(req);
@@ -342,6 +351,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
       name,
       description,
       type,
+      gender,
       bannerImage,
       couponCode,
       discountType,
@@ -445,6 +455,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         name: name !== undefined ? name : existingOffer.name,
         description: description !== undefined ? description : existingOffer.description,
         type: finalType,
+        gender: gender !== undefined ? gender : existingOffer.gender,
         bannerImage: finalType === OfferType.BANNER ? (bannerImage !== undefined ? bannerImage : existingOffer.bannerImage) : '',
         couponCode: finalType === OfferType.COUPON ? (couponCode !== undefined ? couponCode : existingOffer.couponCode) : '',
         discountType: discountType !== undefined ? discountType : existingOffer.discountType,

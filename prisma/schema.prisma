@@ -219,11 +219,12 @@ enum DiscountType {
 }
 
 model Offer {
-  id            String       @id @default(uuid())
+  id            String        @id @default(uuid())
   name          String
-  description   String       @default("")
+  description   String        @default("")
   type          OfferType
-  bannerImage   String       @default("")
+  gender        ServiceGender @default(UNI)
+  bannerImage   String        @default("")
   couponCode    String       @default("")
   discountType  DiscountType @default(PERCENTAGE)
   discountValue Float        @default(0)
