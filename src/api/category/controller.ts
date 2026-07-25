@@ -2,12 +2,14 @@ import { Request, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
+import { ServiceGender } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 export const createCategory = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -15,7 +17,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const { name, image }: { name: string; image?: string } = req.body;
+    const { name, image, gender }: { name: string; image?: string; gender?: ServiceGender } = req.body;
 
     const isExist = await prisma.category.findFirst({
       where: { name: name.trim() },
@@ -30,6 +32,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
       data: {
         name,
         image: image ?? '',
+        gender: gender ?? ServiceGender.UNI,
       },
     });
 
@@ -41,7 +44,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
 
 export const getCategories = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { includeSubCategories, search } = req.query;
+    const { includeSubCategories, search, gender } = req.query;
 
     const includeClause = includeSubCategories === 'true'
       ? { subCategories: { orderBy: { createdAt: 'desc' as const } } }
@@ -50,6 +53,9 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
     const where: any = {};
     if (search) {
       where.name = { contains: search as string, mode: 'insensitive' };
+    }
+    if (gender && Object.values(ServiceGender).includes(gender as ServiceGender)) {
+      where.gender = gender as ServiceGender;
     }
 
     const pagination = getPagination(req);
@@ -107,6 +113,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     await param('id').isUUID().withMessage('Invalid category ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -115,7 +122,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     }
 
     const id = req.params.id as string;
-    const { name, image } = req.body;
+    const { name, image, gender } = req.body;
 
     const existingCategory = await prisma.category.findUnique({
       where: { id },
@@ -140,6 +147,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
       data: {
         name: name !== undefined ? name : existingCategory.name,
         image: image !== undefined ? image : existingCategory.image,
+        gender: gender !== undefined ? gender : existingCategory.gender,
       },
     });
 

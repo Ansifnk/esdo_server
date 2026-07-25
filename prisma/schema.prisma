@@ -67,6 +67,7 @@ model Category {
   id            String        @id @default(uuid())
   name          String
   image         String        @default("")
+  gender        ServiceGender @default(UNI)
   subCategories SubCategory[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
