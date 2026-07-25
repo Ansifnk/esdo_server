@@ -9,6 +9,8 @@ import { getPagination, getPaginationMeta } from '../../utils/pagination';
 export const createService = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
+    await body('shortDescription').optional().isString().withMessage('Short description must be a string').run(req);
+    await body('nickName').optional().isString().withMessage('Nickname must be a string').run(req);
     await body('description').trim().notEmpty().withMessage('Description is required').run(req);
     await body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
@@ -31,6 +33,8 @@ export const createService = async (req: Request, res: Response): Promise<void> 
 
     const {
       name,
+      shortDescription = '',
+      nickName = '',
       description,
       price,
       discountPrice,
@@ -94,6 +98,8 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     const service = await prisma.service.create({
       data: {
         name,
+        shortDescription,
+        nickName,
         description,
         price,
         discountPrice,
@@ -172,6 +178,8 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
+        { nickName: { contains: search, mode: 'insensitive' } },
+        { shortDescription: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
       ];
     }
@@ -240,6 +248,8 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
   try {
     await param('id').isUUID().withMessage('Invalid service ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
+    await body('shortDescription').optional().isString().withMessage('Short description must be a string').run(req);
+    await body('nickName').optional().isString().withMessage('Nickname must be a string').run(req);
     await body('description').optional().trim().notEmpty().withMessage('Description cannot be empty').run(req);
     await body('price').optional().isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').optional().isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
@@ -263,6 +273,8 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     const id = req.params.id as string;
     const {
       name,
+      shortDescription,
+      nickName,
       description,
       price,
       discountPrice,
@@ -345,6 +357,8 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       where: { id },
       data: {
         name: name !== undefined ? name : existingService.name,
+        shortDescription: shortDescription !== undefined ? shortDescription : existingService.shortDescription,
+        nickName: nickName !== undefined ? nickName : existingService.nickName,
         description: description !== undefined ? description : existingService.description,
         price: price !== undefined ? price : existingService.price,
         discountPrice: discountPrice !== undefined ? discountPrice : existingService.discountPrice,
