@@ -5,6 +5,37 @@ import AppResponse from '../../models/AppResponse';
 import { Role, ServiceGender, StaffType } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
+const validateAvailabilities = (availabilities: any[]): string | null => {
+  if (!availabilities || !Array.isArray(availabilities)) return null;
+
+  for (let i = 0; i < availabilities.length; i++) {
+    const a = availabilities[i];
+    const aStart = (a.startDate || '').trim();
+    const aEnd = (a.endDate || '').trim();
+
+    if (aStart && aEnd && aStart > aEnd) {
+      return `Invalid schedule date range: Start date (${aStart}) cannot be after end date (${aEnd})`;
+    }
+
+    for (let j = i + 1; j < availabilities.length; j++) {
+      const b = availabilities[j];
+      const bStart = (b.startDate || '').trim();
+      const bEnd = (b.endDate || '').trim();
+
+      const isUnboundedA = !aStart || !aEnd;
+      const isUnboundedB = !bStart || !bEnd;
+
+      if (isUnboundedA || isUnboundedB || (aStart <= bEnd && aEnd >= bStart)) {
+        const descA = aStart && aEnd ? `${aStart} to ${aEnd}` : 'Daily/Unbounded';
+        const descB = bStart && bEnd ? `${bStart} to ${bEnd}` : 'Daily/Unbounded';
+        return `Schedule conflict: Date range (${descA}) overlaps with an already added schedule (${descB})`;
+      }
+    }
+  }
+
+  return null;
+};
+
 export const createStaff = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
@@ -40,6 +71,13 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       serviceGender = ServiceGender.UNI,
       type = StaffType.STYLIST,
     } = req.body;
+
+    const availError = validateAvailabilities(availabilities);
+    if (availError) {
+      res.json(new AppResponse(availError, {}, 400));
+      return;
+    }
+
     const user = req.user;
 
     if (!user) {
@@ -257,6 +295,15 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
 
     const id = req.params.id as string;
     const { name, phone, languages, saloonId, categoryIds, subCategoryIds, availabilities, overrides, image, isActive, serviceGender, type } = req.body;
+
+    if (availabilities !== undefined) {
+      const availError = validateAvailabilities(availabilities);
+      if (availError) {
+        res.json(new AppResponse(availError, {}, 400));
+        return;
+      }
+    }
+
     const user = req.user;
 
     if (!user) {
