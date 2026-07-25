@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
-import { Role, ServiceGender } from '../../generated/prisma/enums';
+import { Role, ServiceGender, StaffType } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 export const createStaff = async (req: Request, res: Response): Promise<void> => {
@@ -14,9 +14,11 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
     await body('categoryIds').optional().isArray().withMessage('categoryIds must be an array').run(req);
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('availabilities').optional().isArray().withMessage('availabilities must be an array').run(req);
+    await body('overrides').optional().isArray().withMessage('overrides must be an array').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid serviceGender').run(req);
+    await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -32,9 +34,11 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       categoryIds = [],
       subCategoryIds = [],
       availabilities = [],
+      overrides = [],
       image = '',
       isActive = true,
       serviceGender = ServiceGender.UNI,
+      type = StaffType.STYLIST,
     } = req.body;
     const user = req.user;
 
@@ -76,6 +80,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
         image,
         isActive,
         serviceGender,
+        type,
         saloon: { connect: { id: saloonId } },
         categories: {
           connect: categoryIds.map((id: string) => ({ id })),
@@ -85,9 +90,19 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
         },
         availabilities: {
           create: availabilities.map((av: any) => ({
-            day: av.day,
+            startDate: av.startDate || '',
+            endDate: av.endDate || '',
             startTime: av.startTime,
             endTime: av.endTime,
+          })),
+        },
+        overrides: {
+          create: overrides.map((o: any) => ({
+            date: o.date,
+            type: o.type || 'LEAVE',
+            startTime: o.startTime || null,
+            endTime: o.endTime || null,
+            reason: o.reason || null,
           })),
         },
       },
@@ -96,6 +111,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
         categories: true,
         subCategories: true,
         availabilities: true,
+        overrides: true,
       },
     });
 
@@ -156,6 +172,7 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
           categories: true,
           subCategories: true,
           availabilities: true,
+          overrides: true,
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -191,6 +208,7 @@ export const getStaffById = async (req: Request, res: Response): Promise<void> =
         categories: true,
         subCategories: true,
         availabilities: true,
+        overrides: true,
       },
     });
 
@@ -225,9 +243,11 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     await body('categoryIds').optional().isArray().withMessage('categoryIds must be an array').run(req);
     await body('subCategoryIds').optional().isArray().withMessage('subCategoryIds must be an array').run(req);
     await body('availabilities').optional().isArray().withMessage('availabilities must be an array').run(req);
+    await body('overrides').optional().isArray().withMessage('overrides must be an array').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid serviceGender').run(req);
+    await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -236,7 +256,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     }
 
     const id = req.params.id as string;
-    const { name, phone, languages, saloonId, categoryIds, subCategoryIds, availabilities, image, isActive, serviceGender } = req.body;
+    const { name, phone, languages, saloonId, categoryIds, subCategoryIds, availabilities, overrides, image, isActive, serviceGender, type } = req.body;
     const user = req.user;
 
     if (!user) {
@@ -289,6 +309,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
           image: image ?? existingStaff.image,
           isActive: isActive ?? existingStaff.isActive,
           serviceGender: serviceGender ?? existingStaff.serviceGender,
+          type: type ?? existingStaff.type,
           categories: categoryIds !== undefined ? {
             set: categoryIds.map((cid: string) => ({ id: cid })),
           } : undefined,
@@ -307,9 +328,29 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
           await tx.staffAvailability.createMany({
             data: availabilities.map((av: any) => ({
               staffId: id,
-              day: av.day,
+              startDate: av.startDate || '',
+              endDate: av.endDate || '',
               startTime: av.startTime,
               endTime: av.endTime,
+            })),
+          });
+        }
+      }
+
+      if (overrides !== undefined) {
+        await tx.staffScheduleOverride.deleteMany({
+          where: { staffId: id },
+        });
+
+        if (overrides.length > 0) {
+          await tx.staffScheduleOverride.createMany({
+            data: overrides.map((o: any) => ({
+              staffId: id,
+              date: o.date,
+              type: o.type || 'LEAVE',
+              startTime: o.startTime || null,
+              endTime: o.endTime || null,
+              reason: o.reason || null,
             })),
           });
         }
@@ -323,6 +364,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
         categories: true,
         subCategories: true,
         availabilities: true,
+        overrides: true,
       },
     });
 

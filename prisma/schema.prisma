@@ -103,33 +103,60 @@ model File {
   deletedAt    DateTime?
 }
 
+enum StaffType {
+  STYLIST
+  MANAGER
+  RECEPTIONIST
+}
+
 model Staff {
-  id             String              @id @default(uuid())
+  id             String                  @id @default(uuid())
   name           String
-  phone          String              @default("")
-  languages      String[]            @default([])
-  image          String              @default("")
-  isActive       Boolean             @default(true)
-  serviceGender  ServiceGender       @default(UNI)
+  phone          String                  @default("")
+  languages      String[]                @default([])
+  image          String                  @default("")
+  isActive       Boolean                 @default(true)
+  type           StaffType               @default(STYLIST)
+  serviceGender  ServiceGender           @default(UNI)
   saloonId       String
-  saloon         Saloon              @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  saloon         Saloon                  @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories     Category[]
   subCategories  SubCategory[]
   availabilities StaffAvailability[]
+  overrides      StaffScheduleOverride[]
   services       Service[]
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 }
 
 model StaffAvailability {
   id        String   @id @default(uuid())
   staffId   String
   staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  day       String
+  startDate String   @default("")
+  endDate   String   @default("")
   startTime String
   endTime   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum ScheduleOverrideType {
+  LEAVE
+  CUSTOM_HOURS
+}
+
+model StaffScheduleOverride {
+  id        String               @id @default(uuid())
+  staffId   String
+  staff     Staff                @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      String
+  type      ScheduleOverrideType @default(LEAVE)
+  startTime String?
+  endTime   String?
+  reason    String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 }
 
 enum ServiceGender {
