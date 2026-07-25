@@ -45,16 +45,17 @@ model Customer {
 }
 
 model Saloon {
-  id        String    @id @default(uuid())
-  name      String
-  location  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  users     User[]
-  staffs    Staff[]
-  services  Service[]
-  packages  Package[]
-  offers    Offer[]
+  id          String            @id @default(uuid())
+  name        String
+  location    String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  users       User[]
+  staffs      Staff[]
+  services    Service[]
+  packages    Package[]
+  offers      Offer[]
+  attendances StaffAttendance[]
 }
 
 enum Role {
@@ -125,6 +126,7 @@ model Staff {
   availabilities StaffAvailability[]
   overrides      StaffScheduleOverride[]
   services       Service[]
+  attendances    StaffAttendance[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 }
@@ -225,16 +227,44 @@ model Offer {
   type          OfferType
   gender        ServiceGender @default(UNI)
   bannerImage   String        @default("")
-  couponCode    String       @default("")
-  discountType  DiscountType @default(PERCENTAGE)
-  discountValue Float        @default(0)
-  isActive      Boolean      @default(true)
+  couponCode    String        @default("")
+  discountType  DiscountType  @default(PERCENTAGE)
+  discountValue Float         @default(0)
+  isActive      Boolean       @default(true)
   startDate     DateTime?
   endDate       DateTime?
   saloonId      String?
-  saloon        Saloon?      @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  saloon        Saloon?       @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   services      Service[]
   packages      Package[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  LATE
+}
+
+model StaffAttendance {
+  id        String           @id @default(uuid())
+  staffId   String
+  saloonId  String
+  date      String
+  checkIn   String?          @default("")
+  checkOut  String?          @default("")
+  status    AttendanceStatus @default(PRESENT)
+  notes     String?          @default("")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  staff  Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  saloon Saloon @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, date])
+  @@index([staffId, date])
+  @@index([saloonId, date])
 }
