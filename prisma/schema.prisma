@@ -111,54 +111,38 @@ enum StaffType {
 }
 
 model Staff {
-  id             String                  @id @default(uuid())
-  name           String
-  phone          String                  @default("")
-  languages      String[]                @default([])
-  image          String                  @default("")
-  isActive       Boolean                 @default(true)
-  type           StaffType               @default(STYLIST)
-  serviceGender  ServiceGender?
-  saloonId       String
-  saloon         Saloon                  @relation(fields: [saloonId], references: [id], onDelete: Cascade)
-  categories     Category[]
-  subCategories  SubCategory[]
-  availabilities StaffAvailability[]
-  overrides      StaffScheduleOverride[]
-  services       Service[]
-  attendances    StaffAttendance[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id            String            @id @default(uuid())
+  name          String
+  phone         String            @default("")
+  languages     String[]          @default([])
+  image         String            @default("")
+  isActive      Boolean           @default(true)
+  type          StaffType         @default(STYLIST)
+  serviceGender ServiceGender?
+  joiningDate   String            @default("")
+  saloonId      String
+  saloon        Saloon            @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  categories    Category[]
+  subCategories SubCategory[]
+  slots         StaffSlot[]
+  services      Service[]
+  attendances   StaffAttendance[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 }
 
-model StaffAvailability {
+model StaffSlot {
   id        String   @id @default(uuid())
   staffId   String
   staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  startDate String   @default("")
-  endDate   String   @default("")
-  startTime String
-  endTime   String
+  date      String
+  slots     String[] @default([])
+  isWorking Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
 
-enum ScheduleOverrideType {
-  LEAVE
-  CUSTOM_HOURS
-}
-
-model StaffScheduleOverride {
-  id        String               @id @default(uuid())
-  staffId   String
-  staff     Staff                @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  date      String
-  type      ScheduleOverrideType @default(LEAVE)
-  startTime String?
-  endTime   String?
-  reason    String?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  @@unique([staffId, date])
+  @@index([staffId, date])
 }
 
 enum ServiceGender {
