@@ -55,7 +55,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
       where.name = { contains: search as string, mode: 'insensitive' };
     }
     if (gender && Object.values(ServiceGender).includes(gender as ServiceGender)) {
-      where.gender = gender as ServiceGender;
+      where.gender = { in: [gender as ServiceGender, ServiceGender.UNI] };
     }
 
     const pagination = getPagination(req);

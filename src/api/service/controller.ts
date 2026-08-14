@@ -172,7 +172,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     }
 
     if (genderQuery && Object.values(ServiceGender).includes(genderQuery)) {
-      where.serviceGender = genderQuery;
+      where.serviceGender = { in: [genderQuery, ServiceGender.UNI] };
     }
 
     if (search) {
