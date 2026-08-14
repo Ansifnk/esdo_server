@@ -170,8 +170,19 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
       where.name = { contains: search, mode: 'insensitive' };
     }
 
+    const typeQuery = req.query.type as StaffType;
+    const serviceGenderQuery = req.query.serviceGender as ServiceGender;
+
     if (stylistCategoryQuery && Object.values(StylistCategory).includes(stylistCategoryQuery)) {
       where.stylistCategory = stylistCategoryQuery;
+    }
+
+    if (typeQuery && Object.values(StaffType).includes(typeQuery)) {
+      where.type = typeQuery;
+    }
+
+    if (serviceGenderQuery && Object.values(ServiceGender).includes(serviceGenderQuery)) {
+      where.serviceGender = { in: [serviceGenderQuery, ServiceGender.UNI] };
     }
 
     const pagination = getPagination(req);

@@ -11,13 +11,13 @@ import { Role } from '../../generated/prisma/enums';
 
 const router = Router();
 
-// Apply authentication middleware to all staff routes
-router.use(authenticate);
+// Public routes for customer/visitor access
+router.get('/', getStaffs);
+router.get('/:id', getStaffById);
 
-router.post('/', hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), createStaff);
-router.get('/', hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), getStaffs);
-router.get('/:id', hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), getStaffById);
-router.put('/:id', hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), updateStaff);
-router.delete('/:id', hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), deleteStaff);
+// Protected routes (Admin / Super Admin only)
+router.post('/', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), createStaff);
+router.put('/:id', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), updateStaff);
+router.delete('/:id', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), deleteStaff);
 
 export default router;

@@ -39,7 +39,8 @@ app.use('/api/feed', feedRouter);
 app.use('/api/categories', categoryRouter);
 app.use('/api/sub-categories', subCategoryRouter);
 app.use('/api/files', fileRouter);
-app.use('/api/staff', staffRouter);
+app.use('/api/staff', staffRouter); //todo:remove this after making to staffs in admin side
+app.use('/api/staffs', staffRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/packages', packageRouter);
 app.use('/api/admins', adminsRouter);
