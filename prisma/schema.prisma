@@ -110,25 +110,32 @@ enum StaffType {
   RECEPTIONIST
 }
 
+enum StylistCategory {
+  PRIME
+  GOLD
+  SILVER
+}
+
 model Staff {
-  id            String            @id @default(uuid())
-  name          String
-  phone         String            @default("")
-  languages     String[]          @default([])
-  image         String            @default("")
-  isActive      Boolean           @default(true)
-  type          StaffType         @default(STYLIST)
-  serviceGender ServiceGender?
-  joiningDate   String            @default("")
-  saloonId      String
-  saloon        Saloon            @relation(fields: [saloonId], references: [id], onDelete: Cascade)
-  categories    Category[]
-  subCategories SubCategory[]
-  slots         StaffSlot[]
-  services      Service[]
-  attendances   StaffAttendance[]
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id              String            @id @default(uuid())
+  name            String
+  phone           String            @default("")
+  languages       String[]          @default([])
+  image           String            @default("")
+  isActive        Boolean           @default(true)
+  type            StaffType         @default(STYLIST)
+  serviceGender   ServiceGender?
+  stylistCategory StylistCategory?
+  joiningDate     String            @default("")
+  saloonId        String
+  saloon          Saloon            @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  categories      Category[]
+  subCategories   SubCategory[]
+  slots           StaffSlot[]
+  services        Service[]
+  attendances     StaffAttendance[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 }
 
 model StaffSlot {

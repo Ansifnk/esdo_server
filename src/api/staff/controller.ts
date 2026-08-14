@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
-import { Role, ServiceGender, StaffType } from '../../generated/prisma/enums';
+import { Role, ServiceGender, StaffType, StylistCategory } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 
@@ -20,6 +20,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
+    await body('stylistCategory').optional({ nullable: true }).isIn([...Object.values(StylistCategory), null, '']).withMessage('Invalid stylistCategory').run(req);
     await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
@@ -40,6 +41,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       image = '',
       isActive = true,
       serviceGender = null,
+      stylistCategory = null,
       type = StaffType.STYLIST,
     } = req.body;
 
@@ -47,8 +49,10 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       categoryIds = [];
       subCategoryIds = [];
       serviceGender = null;
+      stylistCategory = null;
     } else {
       serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
+      stylistCategory = stylistCategory && Object.values(StylistCategory).includes(stylistCategory) ? stylistCategory : null;
     }
 
     const user = req.user;
@@ -92,6 +96,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
         image,
         isActive,
         serviceGender,
+        stylistCategory,
         type,
         saloon: { connect: { id: saloonId } },
         categories: {
@@ -126,6 +131,7 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
   try {
     const search = req.query.search as string;
     const saloonIdQuery = req.query.saloonId as string;
+    const stylistCategoryQuery = req.query.stylistCategory as StylistCategory;
     const saloonIdsRaw = req.query.saloonIds || req.query['saloonIds[]'];
     let saloonIds: string[] = [];
 
@@ -162,6 +168,10 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
 
     if (search) {
       where.name = { contains: search, mode: 'insensitive' };
+    }
+
+    if (stylistCategoryQuery && Object.values(StylistCategory).includes(stylistCategoryQuery)) {
+      where.stylistCategory = stylistCategoryQuery;
     }
 
     const pagination = getPagination(req);
@@ -246,6 +256,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
+    await body('stylistCategory').optional({ nullable: true }).isIn([...Object.values(StylistCategory), null, '']).withMessage('Invalid stylistCategory').run(req);
     await body('type').optional().isIn(Object.values(StaffType)).withMessage('Invalid staff type').run(req);
 
     const errors = validationResult(req);
@@ -255,7 +266,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     }
 
     const id = req.params.id as string;
-    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, image, isActive, serviceGender, type } = req.body;
+    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, image, isActive, serviceGender, stylistCategory, type } = req.body;
 
     const user = req.user;
 
@@ -304,8 +315,14 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
       categoryIds = [];
       subCategoryIds = [];
       serviceGender = null;
-    } else if (serviceGender !== undefined) {
-      serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
+      stylistCategory = null;
+    } else {
+      if (serviceGender !== undefined) {
+        serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
+      }
+      if (stylistCategory !== undefined) {
+        stylistCategory = stylistCategory && Object.values(StylistCategory).includes(stylistCategory) ? stylistCategory : null;
+      }
     }
 
     // Execute update in transaction
@@ -322,6 +339,9 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
           isActive: isActive ?? existingStaff.isActive,
           serviceGender: isStylist
             ? (serviceGender !== undefined ? serviceGender : existingStaff.serviceGender)
+            : null,
+          stylistCategory: isStylist
+            ? (stylistCategory !== undefined ? stylistCategory : existingStaff.stylistCategory)
             : null,
           type: type ?? existingStaff.type,
           categories: !isStylist
