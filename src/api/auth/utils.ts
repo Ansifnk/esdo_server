@@ -9,8 +9,8 @@ const APP_ENV = process.env.NODE_ENV || 'development';
 
 export interface RequestCustomer {
   id: string;
-  email: string;
-  name: string;
+  email?: string | null;
+  name?: string | null;
   sessionId: string;
   role: Role;
 }
@@ -32,14 +32,14 @@ export function getRefreshCookieOptions(req: Request): CookieOptions {
 }
 
 export const createAccessToken = (
-  user: { id: string; email: string; name?: string | null },
+  user: { id: string; email?: string | null; name?: string | null },
   sessionId: string,
   role: Role
 ): string => {
   return sign(
     {
       id: user.id,
-      email: user.email,
+      email: user.email || '',
       name: user.name || '',
       sessionId,
       role,

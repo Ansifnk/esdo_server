@@ -37,9 +37,10 @@ model UserRole {
 
 model Customer {
   id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  name      String
+  phone     String?  @unique
+  email     String?  @unique
+  password  String?
+  name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -259,3 +260,15 @@ model StaffAttendance {
   @@index([staffId, date])
   @@index([saloonId, date])
 }
+
+model Otp {
+  id         String   @id @default(uuid())
+  phone      String   @unique
+  otp        String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  lastSentAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+

@@ -72,7 +72,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       where: { email },
     });
 
-    if (!customer) {
+    if (!customer || !customer.password) {
       res.json(new AppResponse('Invalid credentials', {}, 401));
       return;
     }
