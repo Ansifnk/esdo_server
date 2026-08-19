@@ -41,6 +41,7 @@ model Customer {
   email     String?  @unique
   password  String?
   name      String?
+  cart      Cart?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -135,6 +136,7 @@ model Staff {
   slots           StaffSlot[]
   services        Service[]
   attendances     StaffAttendance[]
+  cartItems       CartItem[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -181,6 +183,7 @@ model Service {
   relatedTo        Service[]     @relation("ServiceToService")
   packages         Package[]
   offers           Offer[]
+  cartItems        CartItem[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -198,6 +201,7 @@ model Package {
   saloon        Saloon    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   services      Service[]
   offers        Offer[]
+  cartItems     CartItem[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -271,4 +275,32 @@ model Otp {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
+model Cart {
+  id         String     @id @default(uuid())
+  customerId String     @unique
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  couponCode String?    @default("")
+  items      CartItem[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  serviceId String?
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  packageId String?
+  package   Package? @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  date      String?  @default("")
+  timeSlot  String?  @default("")
+  price     Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 
