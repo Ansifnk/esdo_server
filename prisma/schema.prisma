@@ -36,14 +36,17 @@ model UserRole {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  phone     String?  @unique
-  email     String?  @unique
+  id        String    @id @default(uuid())
+  phone     String?   @unique
+  email     String?   @unique
   password  String?
   name      String?
+  points    Int       @default(0)
   cart      Cart?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  bookings  Booking[]
+  payments  Payment[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Saloon {
@@ -58,6 +61,7 @@ model Saloon {
   packages    Package[]
   offers      Offer[]
   attendances StaffAttendance[]
+  bookings    Booking[]
 }
 
 enum Role {
@@ -137,6 +141,7 @@ model Staff {
   services        Service[]
   attendances     StaffAttendance[]
   cartItems       CartItem[]
+  bookingItems    BookingItem[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -184,6 +189,7 @@ model Service {
   packages         Package[]
   offers           Offer[]
   cartItems        CartItem[]
+  bookingItems     BookingItem[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -202,6 +208,7 @@ model Package {
   services      Service[]
   offers        Offer[]
   cartItems     CartItem[]
+  bookingItems  BookingItem[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -302,5 +309,74 @@ model CartItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+model Booking {
+  id            String        @id @default(uuid())
+  bookingNumber String        @unique
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  saloonId      String?
+  saloon        Saloon?       @relation(fields: [saloonId], references: [id], onDelete: SetNull)
+  status        BookingStatus @default(CONFIRMED)
+  paymentStatus PaymentStatus @default(SUCCESS)
+  subtotal      Float
+  discount      Float         @default(0)
+  totalAmount   Float
+  pointsUsed    Int           @default(0)
+  pointsEarned  Int           @default(0)
+  couponCode    String?       @default("")
+  paymentId     String?       @unique
+  payment       Payment?      @relation(fields: [paymentId], references: [id])
+  items         BookingItem[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model BookingItem {
+  id        String   @id @default(uuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId String?
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  packageId String?
+  package   Package? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  staffId   String?
+  staff     Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  date      String?  @default("")
+  timeSlot  String?  @default("")
+  price     Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  razorpayOrderId   String        @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+  amount            Float
+  currency          String        @default("INR")
+  status            PaymentStatus @default(PENDING)
+  customerId        String
+  customer          Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  booking           Booking?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
 
 

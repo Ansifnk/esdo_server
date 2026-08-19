@@ -15,6 +15,8 @@ import offerRouter from './api/offer';
 import attendanceRouter from './api/attendance';
 import customerRouter from './api/customer';
 import cartRouter from './api/cart';
+import paymentRouter from './api/payment';
+import bookingRouter from './api/booking';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -30,7 +32,13 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(cookieParser());
 app.use(responseMiddleware);
 
@@ -38,6 +46,8 @@ app.use(responseMiddleware);
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/cart', cartRouter);
+app.use('/api/payment', paymentRouter);
+app.use('/api/bookings', bookingRouter);
 app.use('/api/saloons', saloonRouter);
 app.use('/api/feed', feedRouter);
 app.use('/api/categories', categoryRouter);

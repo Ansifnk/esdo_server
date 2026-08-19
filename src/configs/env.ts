@@ -13,3 +13,7 @@ export const AWS_PUBLIC_S3_URL = process.env.AWS_PUBLIC_S3_URL || '';
 export const PORT = Number(process.env.PORT) || 3000;
 export const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
 
+export const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_key_id';
+export const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'rzp_test_key_secret';
+export const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_test_webhook_secret';
+
