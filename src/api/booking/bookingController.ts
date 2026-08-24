@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
+import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 
 /**
  * GET /api/bookings (Customer)
@@ -27,6 +28,7 @@ export const getCustomerBookings = async (req: Request, res: Response): Promise<
         },
         saloon: true,
         payment: true,
+        invoice: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -57,6 +59,7 @@ export const getCustomerBookingById = async (req: Request, res: Response): Promi
         customer: true,
         saloon: true,
         payment: true,
+        invoice: true,
         items: {
           include: {
             service: true,
@@ -170,6 +173,7 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
           },
           saloon: true,
           payment: true,
+          invoice: true,
           items: {
             include: {
               service: true,
@@ -208,6 +212,7 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
         customer: true,
         saloon: true,
         payment: true,
+        invoice: true,
         items: {
           include: {
             service: true,
@@ -294,6 +299,14 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
         },
       },
     });
+
+    if (updatedBooking.paymentStatus === 'SUCCESS') {
+      try {
+        await generateOrGetInvoiceForBooking(updatedBooking.id);
+      } catch (invErr) {
+        console.error('Failed to auto-generate invoice on status update:', invErr);
+      }
+    }
 
     res.json(
       new AppResponse('Booking status updated successfully', {
@@ -444,6 +457,14 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         },
       },
     });
+
+    if (newBooking.paymentStatus === 'SUCCESS') {
+      try {
+        await generateOrGetInvoiceForBooking(newBooking.id);
+      } catch (invErr) {
+        console.error('Failed to auto-generate invoice on admin booking create:', invErr);
+      }
+    }
 
     res.json(
       new AppResponse('Booking created successfully', {

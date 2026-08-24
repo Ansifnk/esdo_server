@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
+import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -160,6 +161,13 @@ export async function createBookingAndClearCart(customerId: string, payment: any
 
     return newBooking;
   });
+
+  // Automatically generate invoice upon booking & payment completion
+  try {
+    await generateOrGetInvoiceForBooking(booking.id);
+  } catch (invErr) {
+    console.error('Failed to auto-generate invoice:', invErr);
+  }
 
   return booking;
 }

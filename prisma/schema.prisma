@@ -47,6 +47,7 @@ model Customer {
   bookings  Booking[]
   payments  Payment[]
   reviews   Review[]
+  invoices  Invoice[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -65,6 +66,7 @@ model Saloon {
   attendances StaffAttendance[]
   bookings    Booking[]
   reviews     Review[]
+  invoices    Invoice[]
 }
 
 enum Role {
@@ -346,6 +348,7 @@ model Booking {
   paymentId     String?       @unique
   payment       Payment?      @relation(fields: [paymentId], references: [id])
   items         BookingItem[]
+  invoice       Invoice?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
@@ -402,3 +405,25 @@ model Review {
   @@index([saloonId])
   @@index([customerId])
 }
+
+model Invoice {
+  id            String   @id @default(uuid())
+  invoiceNumber String   @unique
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  saloonId      String?
+  saloon        Saloon?  @relation(fields: [saloonId], references: [id], onDelete: SetNull)
+  subtotal      Float
+  discount      Float    @default(0)
+  totalAmount   Float
+  items         Json     @default("[]")
+  issuedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([saloonId])
+}
+
