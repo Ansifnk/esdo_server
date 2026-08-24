@@ -194,6 +194,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
           subCategories: true,
           stylists: true,
           relatedServices: true,
+          _count: { select: { reviews: true } },
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -229,6 +230,7 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
         subCategories: true,
         stylists: true,
         relatedServices: true,
+        _count: { select: { reviews: true } },
       },
     });
 
@@ -448,3 +450,27 @@ export const deleteService = async (req: Request, res: Response): Promise<void> 
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
 };
+
+export const getServiceReviews = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const serviceId = req.params.id as string;
+    const reviews = await prisma.review.findMany({
+      where: { serviceId },
+      include: {
+        customer: {
+          select: { id: true, name: true },
+        },
+        user: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(new AppResponse('Service reviews retrieved successfully', reviews, 200));
+  } catch (error: any) {
+    const status = error instanceof AppError ? error.status : 500;
+    res.json(new AppResponse(error.message || 'Failed to fetch reviews', [], status));
+  }
+};
+

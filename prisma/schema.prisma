@@ -20,6 +20,7 @@ model User {
   roles     UserRole[]
   saloonId  String?
   saloon    Saloon?    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  reviews   Review[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
@@ -45,6 +46,7 @@ model Customer {
   cart      Cart?
   bookings  Booking[]
   payments  Payment[]
+  reviews   Review[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -62,6 +64,7 @@ model Saloon {
   offers      Offer[]
   attendances StaffAttendance[]
   bookings    Booking[]
+  reviews     Review[]
 }
 
 enum Role {
@@ -190,6 +193,7 @@ model Service {
   offers           Offer[]
   cartItems        CartItem[]
   bookingItems     BookingItem[]
+  reviews          Review[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }
@@ -378,5 +382,23 @@ model Payment {
   updatedAt         DateTime      @updatedAt
 }
 
+model Review {
+  id         String    @id @default(uuid())
+  serviceId  String?
+  service    Service?  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  saloonId   String?
+  saloon     Saloon?   @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating     Float     @default(5)
+  comment    String
+  userName   String    @default("")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-
+  @@index([serviceId])
+  @@index([saloonId])
+  @@index([customerId])
+}

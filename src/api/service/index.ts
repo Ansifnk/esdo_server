@@ -3,6 +3,7 @@ import {
   createService,
   getServices,
   getServiceById,
+  getServiceReviews,
   updateService,
   deleteService,
 } from './controller';
@@ -14,6 +15,7 @@ const router = Router();
 // Public routes for customer/visitor access
 router.get('/', getServices);
 router.get('/:id', getServiceById);
+router.get('/:id/reviews', getServiceReviews);
 
 // Protected routes (Admin / Super Admin only)
 router.post('/', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), createService);
