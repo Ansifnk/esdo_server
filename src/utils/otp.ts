@@ -21,7 +21,7 @@ export function generateOtp(length: number = 4): string {
   if (process.env.NODE_ENV === 'development' && process.env.USE_STATIC_OTP === 'true') {
     return '1234';
   }
-  
+
   let otp = '';
   for (let i = 0; i < length; i++) {
     otp += crypto.randomInt(0, 10).toString();
@@ -83,12 +83,12 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
   }
 
   if (Date.now() > record.expiresAt.getTime()) {
-    await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => {});
+    await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => { });
     return { valid: false, message: 'OTP has expired. Please request a new one.' };
   }
 
   if (record.attempts >= 5) {
-    await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => {});
+    await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => { });
     return { valid: false, message: 'Too many failed attempts. Please request a new OTP.' };
   }
 
@@ -106,7 +106,7 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
   }
 
   // Clear OTP on successful verification
-  await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => {});
+  await prisma.otp.delete({ where: { phone: normalizedPhone } }).catch(() => { });
   return { valid: true };
 }
 
@@ -116,8 +116,7 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
 export async function sendOtpSms(phone: string, otp: string): Promise<{ success: boolean; message?: string }> {
   try {
     const normalizedPhone = normalizePhone(phone);
-    console.log(`[OTP SERVICE] Sent OTP [${otp}] to +${normalizedPhone}`);
-    
+
     // Extensible for SMS Gateway (Twilio / MSG91 / Fast2SMS / Firebase)
     // await smsProvider.send({ to: normalizedPhone, text: `Your ESDO verification code is ${otp}` });
 
