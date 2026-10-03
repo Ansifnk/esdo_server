@@ -148,40 +148,50 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     const genderQuery = req.query.serviceGender as ServiceGender;
 
     const where: any = {};
+    const andClauses: any[] = [];
 
     if (saloonIdQuery) {
-      where.saloonId = saloonIdQuery;
-    }
-
-    if (categoryIdQuery) {
-      where.categories = {
-        some: { id: categoryIdQuery },
-      };
+      andClauses.push({ saloonId: saloonIdQuery });
     }
 
     if (subCategoryIdQuery) {
-      where.subCategories = {
-        some: { id: subCategoryIdQuery },
-      };
+      andClauses.push({
+        subCategories: { some: { id: subCategoryIdQuery } },
+      });
+    } else if (categoryIdQuery) {
+      andClauses.push({
+        OR: [
+          { categories: { some: { id: categoryIdQuery } } },
+          { subCategories: { some: { categoryId: categoryIdQuery } } },
+        ],
+      });
     }
 
     if (staffIdQuery) {
-      where.stylists = {
-        some: { id: staffIdQuery },
-      };
+      andClauses.push({
+        stylists: { some: { id: staffIdQuery } },
+      });
     }
 
     if (genderQuery && Object.values(ServiceGender).includes(genderQuery)) {
-      where.serviceGender = { in: [genderQuery, ServiceGender.UNI] };
+      andClauses.push({
+        serviceGender: { in: [genderQuery, ServiceGender.UNI] },
+      });
     }
 
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { nickName: { contains: search, mode: 'insensitive' } },
-        { shortDescription: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
+      andClauses.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { nickName: { contains: search, mode: 'insensitive' } },
+          { shortDescription: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     const pagination = getPagination(req);
