@@ -6,6 +6,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
+import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -203,6 +204,42 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     if (!cart || cart.items.length === 0) {
       throw new AppError('Your cart is empty', 400);
+    }
+
+    // Verify none of the items in the cart are already booked by a confirmed booking
+    for (const item of cart.items) {
+      if (item.staffId && item.date && item.timeSlot) {
+        //TOD: need to recheck why this implemented
+        const targetDateKey = extractDateMatchKey(item.date);
+        const targetSlotNorm = normalizeTimeSlot(item.timeSlot);
+
+        const conflicts = await prisma.bookingItem.findMany({
+          where: {
+            staffId: item.staffId,
+            booking: {
+              status: { in: ['CONFIRMED', 'COMPLETED'] },
+            },
+          },
+          select: {
+            date: true,
+            timeSlot: true,
+          },
+        });
+
+        const isConflict = conflicts.some((c) => {
+          return (
+            extractDateMatchKey(c.date || '') === targetDateKey &&
+            normalizeTimeSlot(c.timeSlot || '') === targetSlotNorm
+          );
+        });
+
+        if (isConflict) {
+          throw new AppError(
+            `The slot "${item.timeSlot}" on "${item.date}" is already booked. Please choose another slot before checking out.`,
+            400
+          );
+        }
+      }
     }
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);

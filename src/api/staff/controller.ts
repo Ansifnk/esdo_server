@@ -453,3 +453,126 @@ export const deleteStaff = async (req: Request, res: Response): Promise<void> =>
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
   }
 };
+
+/**
+ * Helper to normalize date strings for comparison (e.g. "Today, 5 Oct", "2026-10-05", "5 Oct" -> "5 oct")
+ */
+export function extractDateMatchKey(dateStr: string): string {
+  if (!dateStr) return '';
+  const trimmed = dateStr.trim();
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const mIdx = parseInt(isoMatch[2], 10) - 1;
+    const dNum = parseInt(isoMatch[3], 10);
+    return `${dNum} ${months[mIdx]}`.toLowerCase();
+  }
+  const labelMatch = trimmed.match(/(\d{1,2})\s+([A-Za-z]{3,})/);
+  if (labelMatch) {
+    return `${parseInt(labelMatch[1], 10)} ${labelMatch[2].slice(0, 3)}`.toLowerCase();
+  }
+  return trimmed.toLowerCase();
+}
+
+/**
+ * Helper to normalize time slots to standard "HH:MM AM/PM" (e.g. "09:00", "9:00 AM", "13:00" -> "01:00 PM")
+ */
+export function normalizeTimeSlot(slotStr: string): string {
+  if (!slotStr) return '';
+  const trimmed = slotStr.trim().toUpperCase();
+  // If 24-hr format "HH:MM"
+  if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    const [hStr, mStr] = trimmed.split(':');
+    let h = parseInt(hStr, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${String(h).padStart(2, '0')}:${mStr} ${ampm}`;
+  }
+  const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/);
+  if (match) {
+    const h = String(parseInt(match[1], 10)).padStart(2, '0');
+    return `${h}:${match[2]} ${match[3]}`;
+  }
+  return trimmed;
+}
+
+/**
+ * GET /api/staffs/:id/booked-slots?date=...
+ * Returns unavailable / already booked slots for a specific stylist on a date
+ */
+export const getStaffBookedSlots = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const { date } = req.query;
+
+    const staff = await prisma.staff.findUnique({
+      where: { id },
+      include: {
+        slots: true,
+      },
+    });
+
+    if (!staff) {
+      res.json(new AppResponse('Staff member not found', {}, 404));
+      return;
+    }
+
+    // Find all active booking items for this staff member (only block after successful payment/checkout)
+    const bookingItems = await prisma.bookingItem.findMany({
+      where: {
+        staffId: id,
+        booking: {
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+        },
+      },
+      select: {
+        id: true,
+        date: true,
+        timeSlot: true,
+      },
+    });
+
+    const allBooked = bookingItems.map((b) => ({
+      date: b.date || '',
+      timeSlot: b.timeSlot || '',
+      source: 'booking',
+    }));
+
+    const targetDateKey = date ? extractDateMatchKey(String(date)) : null;
+
+    let isWorking = true;
+    if (targetDateKey && staff.slots) {
+      const schedule = staff.slots.find((s) => extractDateMatchKey(s.date) === targetDateKey);
+      if (schedule && schedule.isWorking === false) {
+        isWorking = false;
+      }
+    }
+
+    const blockedSlotsForDate: string[] = [];
+    if (!isWorking) {
+      blockedSlotsForDate.push('ALL');
+    } else {
+      for (const item of allBooked) {
+        if (!targetDateKey || extractDateMatchKey(item.date) === targetDateKey) {
+          const norm = normalizeTimeSlot(item.timeSlot);
+          if (norm && !blockedSlotsForDate.includes(norm)) {
+            blockedSlotsForDate.push(norm);
+          }
+        }
+      }
+    }
+
+    res.json(
+      new AppResponse('Booked slots retrieved successfully', {
+        staffId: id,
+        staffName: staff.name,
+        date: date || null,
+        isWorking,
+        blockedSlots: blockedSlotsForDate,
+      }, 200)
+    );
+  } catch (error: any) {
+    res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
+  }
+};

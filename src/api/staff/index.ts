@@ -3,6 +3,7 @@ import {
   createStaff,
   getStaffs,
   getStaffById,
+  getStaffBookedSlots,
   updateStaff,
   deleteStaff,
 } from './controller';
@@ -13,6 +14,7 @@ const router = Router();
 
 // Public routes for customer/visitor access
 router.get('/', getStaffs);
+router.get('/:id/booked-slots', getStaffBookedSlots);
 router.get('/:id', getStaffById);
 
 // Protected routes (Admin / Super Admin only)
