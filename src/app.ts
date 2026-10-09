@@ -19,6 +19,7 @@ import paymentRouter from './api/payment';
 import bookingRouter from './api/booking';
 import reviewRouter from './api/review';
 import invoiceRouter from './api/invoice';
+import membershipRouter from './api/membership';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -64,6 +65,7 @@ app.use('/api/admins', adminsRouter);
 app.use('/api/offers', offerRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/reviews', reviewRouter);
+app.use('/api/memberships', membershipRouter);
 
 
 

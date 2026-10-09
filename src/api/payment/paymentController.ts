@@ -7,6 +7,7 @@ import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
+import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -51,7 +52,12 @@ async function getCartTotalAndDiscount(cart: any) {
 /**
  * Shared Helper: Create Booking from Cart & Clear Cart
  */
-export async function createBookingAndClearCart(customerId: string, payment: any, pointsToUse: number = 0) {
+export async function createBookingAndClearCart(
+  customerId: string,
+  payment: any,
+  pointsToUse: number = 0,
+  membershipToUse: number = 0
+) {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
   });
@@ -75,18 +81,29 @@ export async function createBookingAndClearCart(customerId: string, payment: any
 
   if (!cart || cart.items.length === 0) {
     // If cart is already empty, check if booking was already created for this payment
-    const existingBooking = await prisma.booking.findUnique({
-      where: { paymentId: payment.id },
-      include: { items: { include: { service: true, package: true, staff: true } } },
-    });
-    if (existingBooking) return existingBooking;
+    if (payment?.id) {
+      const existingBooking = await prisma.booking.findUnique({
+        where: { paymentId: payment.id },
+        include: { items: { include: { service: true, package: true, staff: true } } },
+      });
+      if (existingBooking) return existingBooking;
+    }
     throw new AppError('Cart is empty', 400);
   }
 
   const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
   const actualPointsUsed = Math.min(Math.max(0, pointsToUse), customer.points);
+  const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - actualPointsUsed);
+
+  // Calculate membership used
+  let actualMembershipUsed = 0;
+  if (membershipToUse > 0) {
+    const memSummary = await getCustomerMembershipSummary(customerId);
+    actualMembershipUsed = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
+  }
+
   const finalDiscount = couponDiscount + actualPointsUsed;
-  const totalAmount = Math.max(0, subtotal - finalDiscount);
+  const totalAmount = Math.max(0, remainingAfterPoints - actualMembershipUsed);
   const pointsEarned = Math.round(totalAmount * 0.01);
 
   // Extract saloonId if available from service or package
@@ -104,7 +121,7 @@ export async function createBookingAndClearCart(customerId: string, payment: any
 
   const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  // Use transaction to create Booking, BookingItems, update Customer points, clear Cart
+  // Use transaction to create Booking, BookingItems, deduct Membership, update Customer points, clear Cart
   const booking = await prisma.$transaction(async (tx) => {
     // Create Booking
     const newBooking = await tx.booking.create({
@@ -118,9 +135,10 @@ export async function createBookingAndClearCart(customerId: string, payment: any
         discount: finalDiscount,
         totalAmount,
         pointsUsed: actualPointsUsed,
+        membershipUsed: actualMembershipUsed,
         pointsEarned,
         couponCode: cart.couponCode || '',
-        paymentId: payment.id,
+        paymentId: payment ? payment.id : null,
         items: {
           create: cart.items.map((item) => ({
             serviceId: item.serviceId,
@@ -143,6 +161,11 @@ export async function createBookingAndClearCart(customerId: string, payment: any
         saloon: true,
       },
     });
+
+    // Deduct membership balance if used
+    if (actualMembershipUsed > 0) {
+      await deductCustomerMembershipBalance(customerId, actualMembershipUsed, newBooking.id, tx);
+    }
 
     // Update Customer points
     const newPointsBalance = Math.max(0, customer.points - actualPointsUsed + pointsEarned);
@@ -184,7 +207,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       throw new AppError('Authentication required', 401);
     }
 
-    const { pointsToUse = 0 } = req.body;
+    const { pointsToUse = 0, membershipToUse = 0 } = req.body;
 
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
@@ -244,7 +267,42 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
     const validPointsToUse = Math.min(Math.max(0, pointsToUse), customer.points);
-    const finalTotal = Math.max(0, subtotal - couponDiscount - validPointsToUse);
+    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - validPointsToUse);
+
+    const memSummary = await getCustomerMembershipSummary(customerId);
+    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
+    const finalTotal = Math.max(0, remainingAfterPoints - validMembershipToUse);
+
+    // If fully covered by membership + points, create booking directly!
+    if (finalTotal === 0) {
+      const payment = await prisma.payment.create({
+        data: {
+          razorpayOrderId: `mem_order_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
+          amount: 0,
+          currency: 'INR',
+          status: 'SUCCESS',
+          customerId,
+        },
+      });
+
+      const booking = await createBookingAndClearCart(
+        customerId,
+        payment,
+        validPointsToUse,
+        validMembershipToUse
+      );
+
+      res.json(
+        new AppResponse('Order paid completely with membership benefits', {
+          booking,
+          isZeroAmount: true,
+          pointsToUse: validPointsToUse,
+          membershipToUse: validMembershipToUse,
+        })
+      );
+      return;
+    }
+
     const amountInPaise = Math.round(finalTotal * 100);
 
     const receipt = `rcpt_${Date.now()}`;
@@ -258,6 +316,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         notes: {
           customerId,
           cartId: cart.id,
+          pointsToUse: validPointsToUse,
+          membershipToUse: validMembershipToUse,
         },
       });
     } catch (rzpErr: any) {
@@ -290,6 +350,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         currency: 'INR',
         keyId: RAZORPAY_KEY_ID,
         pointsToUse: validPointsToUse,
+        membershipToUse: validMembershipToUse,
         couponCode: cart.couponCode,
       })
     );
@@ -310,7 +371,13 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
       throw new AppError('Authentication required', 401);
     }
 
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, pointsToUse = 0 } = req.body;
+    const {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      pointsToUse = 0,
+      membershipToUse = 0,
+    } = req.body;
 
     if (!razorpayOrderId || !razorpayPaymentId) {
       throw new AppError('Missing payment details', 400);
@@ -353,7 +420,12 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
     });
 
     // Create booking and clear cart
-    const booking = await createBookingAndClearCart(customerId, updatedPayment, pointsToUse);
+    const booking = await createBookingAndClearCart(
+      customerId,
+      updatedPayment,
+      pointsToUse,
+      membershipToUse
+    );
 
     res.json(
       new AppResponse('Payment verified and booking created successfully', {
@@ -364,6 +436,121 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.json(new AppResponse(error.message || 'Failed to verify payment and create booking', {}, statusCode));
+  }
+};
+
+/**
+ * POST /api/payment/pay-with-membership
+ * Direct checkout when order is 100% paid by membership benefits
+ */
+export const payWithMembership = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const customerId = req.user?.id;
+    if (!customerId) {
+      throw new AppError('Authentication required', 401);
+    }
+
+    const { pointsToUse = 0, membershipToUse = 0 } = req.body;
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+    if (!customer) {
+      throw new AppError('Customer not found', 404);
+    }
+
+    const cart = await prisma.cart.findUnique({
+      where: { customerId },
+      include: {
+        items: {
+          include: { service: true, package: true },
+        },
+      },
+    });
+
+    if (!cart || cart.items.length === 0) {
+      throw new AppError('Your cart is empty', 400);
+    }
+
+    // Check slot conflicts
+    for (const item of cart.items) {
+      if (item.staffId && item.date && item.timeSlot) {
+        const targetDateKey = extractDateMatchKey(item.date);
+        const targetSlotNorm = normalizeTimeSlot(item.timeSlot);
+
+        const conflicts = await prisma.bookingItem.findMany({
+          where: {
+            staffId: item.staffId,
+            booking: {
+              status: { in: ['CONFIRMED', 'COMPLETED'] },
+            },
+          },
+          select: {
+            date: true,
+            timeSlot: true,
+          },
+        });
+
+        const isConflict = conflicts.some((c) => {
+          return (
+            extractDateMatchKey(c.date || '') === targetDateKey &&
+            normalizeTimeSlot(c.timeSlot || '') === targetSlotNorm
+          );
+        });
+
+        if (isConflict) {
+          throw new AppError(
+            `The slot "${item.timeSlot}" on "${item.date}" is already booked. Please choose another slot before checking out.`,
+            400
+          );
+        }
+      }
+    }
+
+    const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
+    const validPointsToUse = Math.min(Math.max(0, pointsToUse), customer.points);
+    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - validPointsToUse);
+
+    const memSummary = await getCustomerMembershipSummary(customerId);
+    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
+    const finalTotal = Math.max(0, remainingAfterPoints - validMembershipToUse);
+
+    if (finalTotal > 0) {
+      throw new AppError(
+        `Membership balance (₹${validMembershipToUse}) does not cover full order amount (₹${remainingAfterPoints}). Please proceed with online payment.`,
+        400
+      );
+    }
+
+    const payment = await prisma.payment.create({
+      data: {
+        razorpayOrderId: `mem_direct_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
+        amount: 0,
+        currency: 'INR',
+        status: 'SUCCESS',
+        customerId,
+      },
+    });
+
+    const booking = await createBookingAndClearCart(
+      customerId,
+      payment,
+      validPointsToUse,
+      validMembershipToUse
+    );
+
+    res.json(
+      new AppResponse('Booking completed successfully using membership balance', {
+        booking,
+        payment,
+        isZeroAmount: true,
+        membershipUsed: validMembershipToUse,
+        pointsUsed: validPointsToUse,
+      })
+    );
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.json(new AppResponse(error.message || 'Failed to complete booking with membership', {}, statusCode));
   }
 };
 

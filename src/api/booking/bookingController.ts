@@ -4,6 +4,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
+import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 
 /**
  * GET /api/bookings (Customer)
@@ -336,6 +337,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       paymentStatus = 'SUCCESS',
       discount = 0,
       couponCode = '',
+      membershipUsed = 0,
     } = req.body;
 
     const roles = (req.user?.roles || []).map((r: any) => r.role);
@@ -397,7 +399,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
 
     // Process & calculate prices for items
     let subtotal = 0;
-    const processedItems = [];
+    const processedItems: any[] = [];
 
     for (const item of items) {
       let price = Number(item.price) || 0;
@@ -426,36 +428,53 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     }
 
     const numericDiscount = Math.min(Math.max(0, Number(discount) || 0), subtotal);
-    const totalAmount = Math.max(0, subtotal - numericDiscount);
+    const balanceAfterDiscount = Math.max(0, subtotal - numericDiscount);
 
+    // Calculate membership deduction if requested
+    let actualMembershipUsed = 0;
+    if (Number(membershipUsed) > 0 && targetCustomerId) {
+      const memSummary = await getCustomerMembershipSummary(targetCustomerId);
+      actualMembershipUsed = Math.min(Math.max(0, Number(membershipUsed)), memSummary.totalBalance, balanceAfterDiscount);
+    }
+
+    const totalAmount = Math.max(0, balanceAfterDiscount - actualMembershipUsed);
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const newBooking = await prisma.booking.create({
-      data: {
-        bookingNumber,
-        customerId: targetCustomerId,
-        saloonId: targetSaloonId,
-        status,
-        paymentStatus,
-        subtotal,
-        discount: numericDiscount,
-        totalAmount,
-        couponCode: couponCode || '',
-        items: {
-          create: processedItems,
-        },
-      },
-      include: {
-        customer: true,
-        saloon: true,
-        items: {
-          include: {
-            service: true,
-            package: true,
-            staff: true,
+    const newBooking = await prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.create({
+        data: {
+          bookingNumber,
+          customerId: targetCustomerId,
+          saloonId: targetSaloonId,
+          status,
+          paymentStatus,
+          subtotal,
+          discount: numericDiscount,
+          membershipUsed: actualMembershipUsed,
+          totalAmount,
+          couponCode: couponCode || '',
+          items: {
+            create: processedItems,
           },
         },
-      },
+        include: {
+          customer: true,
+          saloon: true,
+          items: {
+            include: {
+              service: true,
+              package: true,
+              staff: true,
+            },
+          },
+        },
+      });
+
+      if (actualMembershipUsed > 0) {
+        await deductCustomerMembershipBalance(targetCustomerId, actualMembershipUsed, booking.id, tx);
+      }
+
+      return booking;
     });
 
     if (newBooking.paymentStatus === 'SUCCESS') {

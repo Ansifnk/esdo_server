@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
+import { getCustomerMembershipSummary } from '../membership/membershipService';
 
 /**
  * Helper to calculate subtotal, discount, and total for a cart
@@ -86,12 +87,18 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    const summary = await calculateCartSummary(cart);
+    const [summary, membershipSummary, customer] = await Promise.all([
+      calculateCartSummary(cart),
+      getCustomerMembershipSummary(customerId),
+      prisma.customer.findUnique({ where: { id: customerId }, select: { points: true } }),
+    ]);
 
     res.json(
       new AppResponse('Cart retrieved successfully', {
         cart,
         summary,
+        membership: membershipSummary,
+        userPoints: customer?.points || 0,
       })
     );
   } catch (error: any) {

@@ -37,19 +37,20 @@ model UserRole {
 }
 
 model Customer {
-  id        String    @id @default(uuid())
-  phone     String?   @unique
-  email     String?   @unique
-  password  String?
-  name      String?
-  points    Int       @default(0)
-  cart      Cart?
-  bookings  Booking[]
-  payments  Payment[]
-  reviews   Review[]
-  invoices  Invoice[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String       @id @default(uuid())
+  phone       String?      @unique
+  email       String?      @unique
+  password    String?
+  name        String?
+  points      Int          @default(0)
+  cart        Cart?
+  bookings    Booking[]
+  payments    Payment[]
+  reviews     Review[]
+  invoices    Invoice[]
+  memberships Membership[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model Saloon {
@@ -201,22 +202,22 @@ model Service {
 }
 
 model Package {
-  id            String    @id @default(uuid())
+  id            String        @id @default(uuid())
   name          String
-  nickName      String    @default("")
+  nickName      String        @default("")
   description   String
   price         Float
-  discountPrice Float     @default(0)
-  primaryImage  String    @default("")
-  images        String[]  @default([])
+  discountPrice Float         @default(0)
+  primaryImage  String        @default("")
+  images        String[]      @default([])
   saloonId      String
-  saloon        Saloon    @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  saloon        Saloon        @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   services      Service[]
   offers        Offer[]
   cartItems     CartItem[]
   bookingItems  BookingItem[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
 enum OfferType {
@@ -331,26 +332,28 @@ enum PaymentStatus {
 }
 
 model Booking {
-  id            String        @id @default(uuid())
-  bookingNumber String        @unique
-  customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  saloonId      String?
-  saloon        Saloon?       @relation(fields: [saloonId], references: [id], onDelete: SetNull)
-  status        BookingStatus @default(CONFIRMED)
-  paymentStatus PaymentStatus @default(SUCCESS)
-  subtotal      Float
-  discount      Float         @default(0)
-  totalAmount   Float
-  pointsUsed    Int           @default(0)
-  pointsEarned  Int           @default(0)
-  couponCode    String?       @default("")
-  paymentId     String?       @unique
-  payment       Payment?      @relation(fields: [paymentId], references: [id])
-  items         BookingItem[]
-  invoice       Invoice?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                     String                  @id @default(uuid())
+  bookingNumber          String                  @unique
+  customerId             String
+  customer               Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  saloonId               String?
+  saloon                 Saloon?                 @relation(fields: [saloonId], references: [id], onDelete: SetNull)
+  status                 BookingStatus           @default(CONFIRMED)
+  paymentStatus          PaymentStatus           @default(SUCCESS)
+  subtotal               Float
+  discount               Float                   @default(0)
+  totalAmount            Float
+  pointsUsed             Int                     @default(0)
+  pointsEarned           Int                     @default(0)
+  membershipUsed         Float                   @default(0)
+  couponCode             String?                 @default("")
+  paymentId              String?                 @unique
+  payment                Payment?                @relation(fields: [paymentId], references: [id])
+  items                  BookingItem[]
+  membershipTransactions MembershipTransaction[]
+  invoice                Invoice?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 }
 
 model BookingItem {
@@ -427,3 +430,43 @@ model Invoice {
   @@index([saloonId])
 }
 
+model Membership {
+  id           String                  @id @default(uuid())
+  customerId   String
+  customer     Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amount       Float // Amount paid by user (e.g. 10000)
+  initialValue Float // Benefit value granted (e.g. 13000)
+  balance      Float // Current available benefit value
+  startDate    DateTime                @default(now())
+  endDate      DateTime? // Optional expiry date (null = infinite)
+  isActive     Boolean                 @default(true)
+  note         String?                 @default("")
+  transactions MembershipTransaction[]
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([customerId])
+  @@index([isActive])
+}
+
+enum MembershipTxType {
+  CREDIT
+  DEBIT
+}
+
+model MembershipTransaction {
+  id            String           @id @default(uuid())
+  membershipId  String
+  membership    Membership       @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  type          MembershipTxType
+  amount        Float //amount paid
+  balanceBefore Float
+  balanceAfter  Float
+  bookingId     String?
+  booking       Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  note          String?          @default("")
+  createdAt     DateTime         @default(now())
+
+  @@index([membershipId])
+  @@index([bookingId])
+}
