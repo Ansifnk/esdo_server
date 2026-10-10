@@ -31,7 +31,7 @@ export const rewardSettingService = {
           spendAmountPerUnit: 100.0,
           coinsEarnedPerUnit: 1,
           coinRedemptionValue: 1.0,
-          minRedemptionCoins: 100,
+          minRedemptionCoins: 0,
           maxRedemptionPercentage: 20.0,
           allowCombineWithCoupon: true,
           spendCoinExpiryMonths: 12,

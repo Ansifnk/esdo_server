@@ -152,11 +152,11 @@ export const registerAdmin = async (req: Request, res: Response): Promise<void> 
         saloon: saloonId
           ? { connect: { id: saloonId } }
           : {
-              create: {
-                name: saloonName,
-                location: saloonLocation,
-              },
+            create: {
+              name: saloonName,
+              location: saloonLocation,
             },
+          },
       },
       include: {
         roles: true,

@@ -45,8 +45,8 @@ export const rewardCoinService = {
       throw new AppError('Reward coins cannot be combined with coupon codes on this order', 400);
     }
 
-    // Minimum balance requirement to redeem
-    if (customerPoints < settings.minRedemptionCoins) {
+    // Minimum balance requirement to redeem (only if minRedemptionCoins is configured > 0)
+    if (settings.minRedemptionCoins > 0 && customerPoints < settings.minRedemptionCoins) {
       throw new AppError(
         `Minimum balance of ${settings.minRedemptionCoins} coins is required to redeem. Current balance: ${customerPoints} coins.`,
         400
@@ -54,23 +54,18 @@ export const rewardCoinService = {
     }
 
     // Maximum redemption per order cap (% of subtotal)
-    const maxRedeemableCash = (subtotal * settings.maxRedemptionPercentage) / 100;
-    const maxRedeemableCoins = Math.floor(maxRedeemableCash / settings.coinRedemptionValue);
+    const maxRedeemableCash =
+      settings.maxRedemptionPercentage > 0
+        ? (subtotal * settings.maxRedemptionPercentage) / 100
+        : subtotal;
+    const maxRedeemableCoins = Math.floor(maxRedeemableCash / (settings.coinRedemptionValue || 1));
 
-    if (pointsToUse > customerPoints) {
-      throw new AppError(`Cannot use more coins than your balance (${customerPoints} coins)`, 400);
-    }
+    // Safely clamp pointsToUse to allowed balance & order cap so checkout never fails
+    const allowedPoints = Math.max(0, Math.min(pointsToUse, customerPoints, maxRedeemableCoins));
+    const discountAmount = allowedPoints * (settings.coinRedemptionValue || 1);
 
-    if (pointsToUse > maxRedeemableCoins) {
-      throw new AppError(
-        `Maximum ${settings.maxRedemptionPercentage}% of order value (max ${maxRedeemableCoins} coins) can be redeemed on this order`,
-        400
-      );
-    }
-
-    const discountAmount = pointsToUse * settings.coinRedemptionValue;
     return {
-      allowedPoints: pointsToUse,
+      allowedPoints,
       discountAmount,
     };
   },
