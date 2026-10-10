@@ -8,6 +8,9 @@ import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '.
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
+import { rewardCoinService } from '../rewards/rewardCoinService';
+import { referralService } from '../rewards/referralService';
+import { RewardTxType } from '../../generated/prisma/enums';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -29,9 +32,10 @@ async function getCartTotalAndDiscount(cart: any) {
 
   let discount = 0;
   if (cart.couponCode) {
+    const trimmed = cart.couponCode.trim();
     const offer = await prisma.offer.findFirst({
       where: {
-        couponCode: { equals: cart.couponCode, mode: 'insensitive' },
+        couponCode: { equals: trimmed, mode: 'insensitive' },
         isActive: true,
       },
     });
@@ -42,6 +46,16 @@ async function getCartTotalAndDiscount(cart: any) {
       } else if (offer.discountType === 'FIXED') {
         discount = offer.discountValue;
       }
+    } else {
+      try {
+        const referralCheck = await referralService.validateReferralCodeForWelcomeDiscount(
+          cart.customerId,
+          trimmed
+        );
+        if (referralCheck.valid && subtotal >= referralCheck.minOrderAmount) {
+          discount = referralCheck.discountAmount;
+        }
+      } catch (_e) { }
     }
   }
 
@@ -92,8 +106,17 @@ export async function createBookingAndClearCart(
   }
 
   const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
-  const actualPointsUsed = Math.min(Math.max(0, pointsToUse), customer.points);
-  const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - actualPointsUsed);
+
+  // Validate points redemption according to dynamic policy
+  const { allowedPoints: actualPointsUsed, discountAmount: pointsDiscountAmount } =
+    await rewardCoinService.validateRedemption({
+      customerPoints: customer.points,
+      subtotal,
+      pointsToUse,
+      hasCoupon: Boolean(cart.couponCode),
+    });
+
+  const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscountAmount);
 
   // Calculate membership used
   let actualMembershipUsed = 0;
@@ -102,9 +125,11 @@ export async function createBookingAndClearCart(
     actualMembershipUsed = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
   }
 
-  const finalDiscount = couponDiscount + actualPointsUsed;
+  const finalDiscount = couponDiscount + pointsDiscountAmount;
   const totalAmount = Math.max(0, remainingAfterPoints - actualMembershipUsed);
-  const pointsEarned = Math.round(totalAmount * 0.01);
+
+  // Dynamic spend-based coins earned
+  const pointsEarned = await rewardCoinService.calculateCoinsEarned(subtotal);
 
   // Extract saloonId if available from service or package
   let saloonId: string | null = null;
@@ -167,12 +192,28 @@ export async function createBookingAndClearCart(
       await deductCustomerMembershipBalance(customerId, actualMembershipUsed, newBooking.id, tx);
     }
 
-    // Update Customer points
-    const newPointsBalance = Math.max(0, customer.points - actualPointsUsed + pointsEarned);
-    await tx.customer.update({
-      where: { id: customerId },
-      data: { points: newPointsBalance },
-    });
+    // Deduct redeemed coins using FIFO batch consumption
+    if (actualPointsUsed > 0) {
+      await rewardCoinService.deductCoinsFIFO(customerId, actualPointsUsed, newBooking.id, tx);
+    }
+
+    // Credit earned coins with dynamic expiry
+    if (pointsEarned > 0) {
+      await rewardCoinService.creditCoins({
+        customerId,
+        amount: pointsEarned,
+        type: RewardTxType.SPEND_EARN,
+        bookingId: newBooking.id,
+        notes: `Earned from booking ${bookingNumber}`,
+        externalTx: tx,
+      });
+    }
+
+    // Trigger referral qualification if applicable
+    await referralService.handleBookingCompletion(
+      { id: newBooking.id, customerId, totalAmount },
+      tx
+    );
 
     // Delete cart items & clear coupon
     await tx.cartItem.deleteMany({
@@ -266,8 +307,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     }
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
-    const validPointsToUse = Math.min(Math.max(0, pointsToUse), customer.points);
-    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - validPointsToUse);
+    const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
+      await rewardCoinService.validateRedemption({
+        customerPoints: customer.points,
+        subtotal,
+        pointsToUse,
+        hasCoupon: Boolean(cart.couponCode),
+      });
+    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscount);
 
     const memSummary = await getCustomerMembershipSummary(customerId);
     const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
@@ -508,8 +555,14 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     }
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
-    const validPointsToUse = Math.min(Math.max(0, pointsToUse), customer.points);
-    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - validPointsToUse);
+    const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
+      await rewardCoinService.validateRedemption({
+        customerPoints: customer.points,
+        subtotal,
+        pointsToUse,
+        hasCoupon: Boolean(cart.couponCode),
+      });
+    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscount);
 
     const memSummary = await getCustomerMembershipSummary(customerId);
     const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);

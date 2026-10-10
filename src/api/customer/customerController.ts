@@ -23,7 +23,7 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
       ];
     }
 
-    const [customers, total] = await Promise.all([
+    const [rawCustomers, total] = await Promise.all([
       prisma.customer.findMany({
         where: whereCondition,
         orderBy: { createdAt: 'desc' },
@@ -35,11 +35,46 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
           phone: true,
           email: true,
           points: true,
+          referralCode: true,
+          rewardTransactions: {
+            where: {
+              status: 'ACTIVE',
+              remainingCoins: { gt: 0 },
+            },
+            select: {
+              type: true,
+              remainingCoins: true,
+            },
+          },
           createdAt: true,
         },
       }),
       prisma.customer.count({ where: whereCondition }),
     ]);
+
+    const customers = rawCustomers.map((c) => {
+      let rewardPoints = 0;
+      let referralPoints = 0;
+      for (const tx of c.rewardTransactions || []) {
+        if (tx.type === 'SPEND_EARN') rewardPoints += tx.remainingCoins;
+        else if (tx.type === 'REFERRAL_EARN') referralPoints += tx.remainingCoins;
+      }
+      const totalPoints = c.points || 0;
+      if (rewardPoints + referralPoints < totalPoints) {
+        rewardPoints += (totalPoints - (rewardPoints + referralPoints));
+      }
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        points: totalPoints,
+        rewardPoints,
+        referralPoints,
+        referralCode: c.referralCode,
+        createdAt: c.createdAt,
+      };
+    });
 
     const paginationMeta = getPaginationMeta(total, paginationParams);
 

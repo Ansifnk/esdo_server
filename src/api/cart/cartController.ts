@@ -4,11 +4,14 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
 import { getCustomerMembershipSummary } from '../membership/membershipService';
+import { rewardCoinService } from '../rewards/rewardCoinService';
+import { rewardSettingService } from '../rewards/rewardSettingService';
+import { referralService } from '../rewards/referralService';
 
 /**
  * Helper to calculate subtotal, discount, and total for a cart
  */
-async function calculateCartSummary(cart: any) {
+async function calculateCartSummary(cart: any, customerId?: string) {
   const items = cart.items || [];
   let subtotal = 0;
 
@@ -19,10 +22,11 @@ async function calculateCartSummary(cart: any) {
 
   let discount = 0;
   if (cart.couponCode) {
+    const trimmedCode = cart.couponCode.trim();
     // Check if there is an active offer coupon matching couponCode
     const offer = await prisma.offer.findFirst({
       where: {
-        couponCode: { equals: cart.couponCode, mode: 'insensitive' },
+        couponCode: { equals: trimmedCode, mode: 'insensitive' },
         isActive: true,
       },
     });
@@ -32,6 +36,21 @@ async function calculateCartSummary(cart: any) {
         discount = (subtotal * offer.discountValue) / 100;
       } else if (offer.discountType === 'FIXED') {
         discount = offer.discountValue;
+      }
+    } else {
+      // Check if it's a valid friend referral code for first-time customer
+      try {
+        const referralCheck = await referralService.validateReferralCodeForWelcomeDiscount(
+          customerId || cart.customerId || '',
+          trimmedCode
+        );
+        if (referralCheck.valid) {
+          if (subtotal >= referralCheck.minOrderAmount) {
+            discount = referralCheck.discountAmount;
+          }
+        }
+      } catch (_e) {
+        // Not a referral code
       }
     }
   }
@@ -87,18 +106,67 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    const [summary, membershipSummary, customer] = await Promise.all([
+    const [summary, membershipSummary, customer, rewardSettings, activeBatches] = await Promise.all([
       calculateCartSummary(cart),
       getCustomerMembershipSummary(customerId),
       prisma.customer.findUnique({ where: { id: customerId }, select: { points: true } }),
+      rewardSettingService.getSettings(),
+      prisma.rewardTransaction.findMany({
+        where: {
+          customerId,
+          status: 'ACTIVE' as any,
+          remainingCoins: { gt: 0 },
+        },
+        select: {
+          type: true,
+          remainingCoins: true,
+        },
+      }),
     ]);
+
+    let rewardPoints = 0;
+    let referralPoints = 0;
+    for (const b of activeBatches) {
+      if (b.type === 'SPEND_EARN') rewardPoints += b.remainingCoins;
+      else if (b.type === 'REFERRAL_EARN') referralPoints += b.remainingCoins;
+    }
+    const userPoints = customer?.points || 0;
+    if (rewardPoints + referralPoints < userPoints) {
+      rewardPoints += (userPoints - (rewardPoints + referralPoints));
+    }
+
+    const estimatedCoinsEarned = await rewardCoinService.calculateCoinsEarned(summary.subtotal);
+    const maxRedeemableCash = (summary.subtotal * rewardSettings.maxRedemptionPercentage) / 100;
+    const maxRedeemableCoins = Math.min(
+      userPoints,
+      Math.floor(maxRedeemableCash / rewardSettings.coinRedemptionValue)
+    );
+    const canRedeemCoins =
+      rewardSettings.isSpendRewardEnabled &&
+      userPoints >= rewardSettings.minRedemptionCoins &&
+      (!cart.couponCode || rewardSettings.allowCombineWithCoupon);
 
     res.json(
       new AppResponse('Cart retrieved successfully', {
         cart,
-        summary,
+        summary: {
+          ...summary,
+          estimatedCoinsEarned,
+        },
         membership: membershipSummary,
-        userPoints: customer?.points || 0,
+        userPoints,
+        rewardPoints,
+        referralPoints,
+        rewardProgram: {
+          isSpendRewardEnabled: rewardSettings.isSpendRewardEnabled,
+          coinRedemptionValue: rewardSettings.coinRedemptionValue,
+          minRedemptionCoins: rewardSettings.minRedemptionCoins,
+          maxRedemptionPercentage: rewardSettings.maxRedemptionPercentage,
+          allowCombineWithCoupon: rewardSettings.allowCombineWithCoupon,
+          maxRedeemableCoins,
+          canRedeemCoins,
+          estimatedCoinsEarned,
+        },
       })
     );
   } catch (error: any) {
@@ -213,7 +281,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       },
     });
 
-    const summary = await calculateCartSummary(updatedCart);
+    const summary = await calculateCartSummary(updatedCart, customerId);
 
     res.json(
       new AppResponse('Item added to cart successfully', {
@@ -275,7 +343,7 @@ export const removeCartItem = async (req: Request, res: Response): Promise<void>
       },
     });
 
-    const summary = await calculateCartSummary(updatedCart);
+    const summary = await calculateCartSummary(updatedCart, customerId);
 
     res.json(
       new AppResponse('Item removed from cart', {
@@ -312,10 +380,37 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
       });
     }
 
+    if (couponCode && couponCode.trim()) {
+      const trimmed = couponCode.trim();
+      const offer = await prisma.offer.findFirst({
+        where: { couponCode: { equals: trimmed, mode: 'insensitive' }, isActive: true },
+      });
+
+      if (!offer) {
+        // Test referral code
+        try {
+          const refResult = await referralService.validateReferralCodeForWelcomeDiscount(
+            customerId,
+            trimmed
+          );
+          if (refResult.valid) {
+            // Link referral if customer not yet linked
+            try {
+              await referralService.applyReferralCode(customerId, trimmed);
+            } catch (_err) {
+              // Might already be linked
+            }
+          }
+        } catch (refErr: any) {
+          throw new AppError(refErr.message || 'Invalid coupon or referral code', 400);
+        }
+      }
+    }
+
     // Update couponCode on cart
     cart = await prisma.cart.update({
       where: { id: cart.id },
-      data: { couponCode: couponCode || '' },
+      data: { couponCode: couponCode ? couponCode.trim() : '' },
       include: {
         items: {
           include: {
@@ -328,16 +423,16 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
       },
     });
 
-    const summary = await calculateCartSummary(cart);
+    const summary = await calculateCartSummary(cart, customerId);
 
     res.json(
-      new AppResponse(couponCode ? 'Coupon applied successfully' : 'Coupon removed', {
+      new AppResponse(couponCode ? 'Code applied successfully' : 'Coupon removed', {
         cart,
         summary,
       })
     );
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
-    res.json(new AppResponse(error.message || 'Failed to apply coupon', {}, statusCode));
+    res.json(new AppResponse(error.message || 'Failed to apply code', {}, statusCode));
   }
 };

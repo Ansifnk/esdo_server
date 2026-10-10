@@ -17,6 +17,8 @@ import {
   sendOtpSms,
   normalizePhone,
 } from '../../utils/otp';
+import { generateUniqueReferralCode } from '../rewards/rewardUtils';
+import { referralService } from '../rewards/referralService';
 
 /**
  * Customer Login - Send OTP
@@ -91,13 +93,33 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
       where: { phone: normalized },
     });
 
+    const referralCodeInput = req.body.referredByCode || req.body.referralCode;
+
     if (!customer) {
+      const generatedCode = await generateUniqueReferralCode();
       // Auto-create customer record on verification
       customer = await prisma.customer.create({
         data: {
           phone: normalized,
           name: name || `Customer ${normalized.slice(-4)}`,
+          referralCode: generatedCode,
         },
+      });
+
+      // Apply referral code if provided
+      if (referralCodeInput) {
+        try {
+          await referralService.applyReferralCode(customer.id, referralCodeInput);
+        } catch (err: any) {
+          console.warn('Could not apply referral code during customer verification:', err.message);
+        }
+      }
+    } else if (!customer.referralCode) {
+      // Ensure existing customer has referral code
+      const generatedCode = await generateUniqueReferralCode();
+      customer = await prisma.customer.update({
+        where: { id: customer.id },
+        data: { referralCode: generatedCode },
       });
     }
 

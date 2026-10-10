@@ -48,9 +48,16 @@ model Customer {
   payments    Payment[]
   reviews     Review[]
   invoices    Invoice[]
-  memberships Membership[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  memberships        Membership[]
+  referralCode       String?             @unique
+  referredById       String?
+  referredBy         Customer?           @relation("CustomerReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referralsMade      Customer[]          @relation("CustomerReferrals")
+  referralRecords    Referral[]          @relation("ReferrerRel")
+  referralReceived   Referral?           @relation("ReferredCustomerRel")
+  rewardTransactions RewardTransaction[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 }
 
 model Saloon {
@@ -352,6 +359,8 @@ model Booking {
   items                  BookingItem[]
   membershipTransactions MembershipTransaction[]
   invoice                Invoice?
+  rewardTransactions     RewardTransaction[]
+  referralsQualified     Referral[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 }
@@ -470,3 +479,107 @@ model MembershipTransaction {
   @@index([membershipId])
   @@index([bookingId])
 }
+
+model RewardSetting {
+  id                             String   @id @default(uuid())
+  isSpendRewardEnabled           Boolean  @default(true)
+  spendAmountPerUnit             Float    @default(100.0) // Every ₹100
+  coinsEarnedPerUnit             Int      @default(1)     // Earns 1 coin
+  coinRedemptionValue            Float    @default(1.0)   // ₹1 value per coin
+  minRedemptionCoins             Int      @default(100)   // Min 100 coins
+  maxRedemptionPercentage        Float    @default(20.0)  // Max 20% of order value
+  allowCombineWithCoupon         Boolean  @default(true)  // Can combine with coupons
+  spendCoinExpiryMonths          Int      @default(12)    // Expiry duration in months
+
+  isReferralEnabled              Boolean  @default(true)
+  referredUserDiscountAmount     Float    @default(125.0) // ₹125 OFF on first booking
+  referredUserMinOrderAmount     Float    @default(500.0) // Min order amount for welcome discount
+  referredUserDiscountExpiryDays Int      @default(30)    // Validity of welcome coupon
+  referralCoinExpiryMonths       Int      @default(12)    // Expiry duration for referral coins
+  defaultReferralCoins           Int      @default(200)   // Fallback for counts beyond defined slabs
+  shareMessageTemplate           String   @default("Sharing something I personally love ❤️ Es_Do has been amazing for salon & wellness services. Use my referral code {code} to get ₹{discount} OFF on your first booking. Visit now: {url}")
+
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+}
+
+model ReferralRewardSlab {
+  id                 String   @id @default(uuid())
+  referralCount      Int      @unique // 1, 2, 3, 4, 5, 10, 15
+  coinsEarned        Int      // 200, 350, 425, 525, etc.
+  hasMilestoneReward Boolean  @default(false)
+  milestoneTitle     String?  // "Free service unlocked"
+  milestoneType      String?  // "FREE_SERVICE_VOUCHER"
+  milestoneValue     Float?   // Optional max cap for free service
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  CANCELLED
+}
+
+model Referral {
+  id                  String         @id @default(uuid())
+  referrerId          String
+  referrer            Customer       @relation("ReferrerRel", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredCustomerId  String         @unique
+  referredCustomer    Customer       @relation("ReferredCustomerRel", fields: [referredCustomerId], references: [id], onDelete: Cascade)
+  referralCodeUsed    String
+  referralNumber      Int            // 1st, 2nd, 3rd, etc. for this referrer
+  status              ReferralStatus @default(PENDING)
+  coinsAwarded        Int            @default(0)
+  milestoneUnlocked   Boolean        @default(false)
+  milestoneTitle      String?
+  qualifyingBookingId String?
+  qualifyingBooking   Booking?       @relation(fields: [qualifyingBookingId], references: [id], onDelete: SetNull)
+  transactions        RewardTransaction[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([referrerId])
+  @@index([status])
+}
+
+enum RewardTxType {
+  SPEND_EARN
+  REFERRAL_EARN
+  REDEMPTION
+  REFUND_REVERSAL
+  EXPIRY
+  ADMIN_ADJUSTMENT
+}
+
+enum RewardTxStatus {
+  ACTIVE
+  EXPIRED
+  REVERSED
+  FULLY_CONSUMED
+}
+
+model RewardTransaction {
+  id             String           @id @default(uuid())
+  customerId     String
+  customer       Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type           RewardTxType
+  amount         Int              // Positive for credit (+50), negative for debit (-100)
+  balanceBefore  Int
+  balanceAfter   Int
+  remainingCoins Int              @default(0) // Remaining unspent coins in this credit batch
+  expiresAt      DateTime?        // Batch expiration date
+  status         RewardTxStatus   @default(ACTIVE)
+  bookingId      String?
+  booking        Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  referralId     String?
+  referral       Referral?        @relation(fields: [referralId], references: [id], onDelete: SetNull)
+  notes          String?          @default("")
+  createdAt      DateTime         @default(now())
+
+  @@index([customerId])
+  @@index([expiresAt])
+  @@index([status])
+}
+

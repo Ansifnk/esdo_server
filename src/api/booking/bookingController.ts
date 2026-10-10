@@ -5,6 +5,7 @@ import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
+import { rewardCoinService } from '../rewards/rewardCoinService';
 
 /**
  * GET /api/bookings (Customer)
@@ -306,6 +307,14 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
         await generateOrGetInvoiceForBooking(updatedBooking.id);
       } catch (invErr) {
         console.error('Failed to auto-generate invoice on status update:', invErr);
+      }
+    }
+
+    if (updatedBooking.status === 'CANCELLED' || updatedBooking.paymentStatus === 'REFUNDED') {
+      try {
+        await rewardCoinService.reverseOrderCoins(updatedBooking.id);
+      } catch (revErr) {
+        console.error('Failed to reverse reward coins on cancellation:', revErr);
       }
     }
 

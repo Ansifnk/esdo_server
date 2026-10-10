@@ -20,6 +20,8 @@ import bookingRouter from './api/booking';
 import reviewRouter from './api/review';
 import invoiceRouter from './api/invoice';
 import membershipRouter from './api/membership';
+import rewardsRouter from './api/rewards';
+import { processExpiredCoins } from './api/rewards/cronExpiry';
 import { responseMiddleware } from './middlewares/response';
 import { Role } from './generated/prisma/enums';
 import AppError from './models/AppError';
@@ -66,6 +68,14 @@ app.use('/api/offers', offerRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/reviews', reviewRouter);
 app.use('/api/memberships', membershipRouter);
+app.use('/api/rewards', rewardsRouter);
+
+//Todo: move this to onethor file
+// Daily automated coin expiration check (runs on startup and every 24 hours)
+processExpiredCoins().catch((err) => console.error('Initial coin expiry check failed:', err));
+setInterval(() => {
+  processExpiredCoins().catch((err) => console.error('Daily coin expiry check failed:', err));
+}, 24 * 60 * 60 * 1000);
 
 
 
