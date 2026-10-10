@@ -56,6 +56,7 @@ model Customer {
   referralRecords    Referral[]          @relation("ReferrerRel")
   referralReceived   Referral?           @relation("ReferredCustomerRel")
   rewardTransactions RewardTransaction[]
+  packages           Package[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -223,8 +224,20 @@ model Package {
   offers        Offer[]
   cartItems     CartItem[]
   bookingItems  BookingItem[]
+  customerId    String?
+  customer      Customer?     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  isCustom      Boolean       @default(false)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+
+  @@index([customerId])
+}
+
+model PackageSetting {
+  id                 String   @id @default(uuid())
+  discountPercentage Float    @default(15.0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 enum OfferType {

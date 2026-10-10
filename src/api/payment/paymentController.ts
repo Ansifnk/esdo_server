@@ -98,7 +98,19 @@ export async function createBookingAndClearCart(
     if (payment?.id) {
       const existingBooking = await prisma.booking.findUnique({
         where: { paymentId: payment.id },
-        include: { items: { include: { service: true, package: true, staff: true } } },
+        include: {
+          items: {
+            include: {
+              service: true,
+              package: {
+                include: {
+                  services: true,
+                },
+              },
+              staff: true,
+            },
+          },
+        },
       });
       if (existingBooking) return existingBooking;
     }
@@ -179,7 +191,11 @@ export async function createBookingAndClearCart(
         items: {
           include: {
             service: true,
-            package: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
             staff: true,
           },
         },

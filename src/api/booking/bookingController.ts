@@ -24,7 +24,11 @@ export const getCustomerBookings = async (req: Request, res: Response): Promise<
         items: {
           include: {
             service: true,
-            package: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
             staff: true,
           },
         },
@@ -65,7 +69,11 @@ export const getCustomerBookingById = async (req: Request, res: Response): Promi
         items: {
           include: {
             service: true,
-            package: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
             staff: true,
           },
         },
@@ -179,7 +187,11 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
           items: {
             include: {
               service: true,
-              package: true,
+              package: {
+                include: {
+                  services: true,
+                },
+              },
               staff: true,
             },
           },
@@ -218,7 +230,11 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
         items: {
           include: {
             service: true,
-            package: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
             staff: true,
           },
         },
@@ -295,7 +311,11 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
         items: {
           include: {
             service: true,
-            package: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
             staff: true,
           },
         },
@@ -472,7 +492,11 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           items: {
             include: {
               service: true,
-              package: true,
+              package: {
+                include: {
+                  services: true,
+                },
+              },
               staff: true,
             },
           },

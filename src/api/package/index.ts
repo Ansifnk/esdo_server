@@ -5,14 +5,24 @@ import {
   getPackageById,
   updatePackage,
   deletePackage,
+  getPackageSettings,
+  updatePackageSettings,
+  createCustomPackage,
 } from './controller';
-import { authenticate, hasAuth } from '../../middlewares/auth';
+import { authenticate, hasAuth, optionalAuthenticate } from '../../middlewares/auth';
 import { Role } from '../../generated/prisma/enums';
 
 const router = Router();
 
-// Public routes
-router.get('/', getPackages);
+// Package settings routes (Public get, Admin/Super Admin update)
+router.get('/settings', getPackageSettings);
+router.put('/settings', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), updatePackageSettings);
+
+// Custom package route for customers
+router.post('/custom', authenticate, createCustomPackage);
+
+// Public routes (with optional customer auth for customer-specific packages)
+router.get('/', optionalAuthenticate, getPackages);
 router.get('/:id', getPackageById);
 
 // Protected routes (Admin / Super Admin only)
