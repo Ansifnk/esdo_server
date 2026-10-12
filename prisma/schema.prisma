@@ -250,25 +250,33 @@ enum DiscountType {
   FIXED
 }
 
+enum BannerPlacement {
+  HERO
+  INTERSTITIAL
+}
+
 model Offer {
-  id            String        @id @default(uuid())
-  name          String
-  description   String        @default("")
-  type          OfferType
-  gender        ServiceGender @default(UNI)
-  bannerImage   String        @default("")
-  couponCode    String        @default("")
-  discountType  DiscountType  @default(PERCENTAGE)
-  discountValue Float         @default(0)
-  isActive      Boolean       @default(true)
-  startDate     DateTime?
-  endDate       DateTime?
-  saloonId      String?
-  saloon        Saloon?       @relation(fields: [saloonId], references: [id], onDelete: Cascade)
-  services      Service[]
-  packages      Package[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                String          @id @default(uuid())
+  name              String
+  description       String          @default("")
+  type              OfferType
+  placement         BannerPlacement @default(HERO)
+  gender            ServiceGender   @default(UNI)
+  bannerImage       String          @default("")
+  mobileBannerImage String?         @default("")
+  linkUrl           String?         @default("")
+  couponCode        String          @default("")
+  discountType      DiscountType    @default(PERCENTAGE)
+  discountValue     Float           @default(0)
+  isActive          Boolean         @default(true)
+  startDate         DateTime?
+  endDate           DateTime?
+  saloonId          String?
+  saloon            Saloon?         @relation(fields: [saloonId], references: [id], onDelete: Cascade)
+  services          Service[]
+  packages          Package[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 }
 
 enum AttendanceStatus {
