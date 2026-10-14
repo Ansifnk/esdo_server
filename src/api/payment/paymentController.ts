@@ -181,7 +181,7 @@ export async function createBookingAndClearCart(
             serviceId: item.serviceId,
             packageId: item.packageId,
             staffId: item.staffId,
-            date: item.date || '',
+            date: item.date,
             timeSlot: item.timeSlot || '',
             price: item.price,
           })),

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { body, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
@@ -186,6 +187,21 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       throw new AppError('Authentication required', 401);
     }
 
+    await body('date')
+      .notEmpty().withMessage('Date is required')
+      .isISO8601().withMessage('Date must be a valid ISO 8601 date string')
+      .run(req);
+    await body('timeSlot')
+      .notEmpty().withMessage('Time slot is required')
+      .isString().withMessage('Time slot must be a string')
+      .run(req);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
+      return;
+    }
+
     const { serviceId, packageId, staffId, date, timeSlot } = req.body;
 
     if (!serviceId && !packageId) {
@@ -255,8 +271,8 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
         serviceId: serviceId || null,
         packageId: packageId || null,
         staffId: staffId || null,
-        date: date || 'Today, 15 June',
-        timeSlot: timeSlot || '12:00 PM',
+        date: new Date(date).toISOString(),
+        timeSlot: timeSlot,
         price,
       },
       include: {

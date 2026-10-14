@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
+import { body, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
+import { BookingStatus, PaymentStatus } from '../../generated/prisma/enums';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
@@ -355,15 +357,48 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
  */
 export const createAdminBooking = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Express-validator validation
+    await body('customerId')
+      .notEmpty().withMessage('Customer ID is required')
+      .isString().withMessage('Customer ID must be a string')
+      .trim()
+      .run(req);
+    await body('items')
+      .isArray({ min: 1 }).withMessage('Booking must contain at least one item')
+      .run(req);
+    await body('items.*.date')
+      .notEmpty().withMessage('Date is required for each item')
+      .isISO8601().withMessage('Date must be a valid ISO 8601 date string')
+      .run(req);
+    await body('items.*.timeSlot')
+      .notEmpty().withMessage('Time slot is required for each item')
+      .isString().withMessage('Time slot must be a string')
+      .run(req);
+    await body('discount')
+      .optional()
+      .isFloat({ min: 0 }).withMessage('Discount must be a non-negative number')
+      .run(req);
+    await body('status')
+      .optional()
+      .isIn(Object.values(BookingStatus)).withMessage(`Invalid booking status. Allowed: ${Object.values(BookingStatus).join(', ')}`)
+      .run(req);
+    await body('paymentStatus')
+      .optional()
+      .isIn(Object.values(PaymentStatus)).withMessage(`Invalid payment status. Allowed: ${Object.values(PaymentStatus).join(', ')}`)
+      .run(req);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.json(new AppResponse(errors.array()[0].msg, {}, 400));
+      return;
+    }
+
     const {
       customerId,
-      customerName,
-      customerPhone,
-      customerEmail,
       saloonId,
       items,
-      status = 'CONFIRMED',
-      paymentStatus = 'SUCCESS',
+      status = BookingStatus.CONFIRMED,
+      paymentStatus = PaymentStatus.SUCCESS,
       discount = 0,
       couponCode = '',
       membershipUsed = 0,
@@ -389,36 +424,21 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       }
     }
 
-    // Determine or Create Customer
-    let targetCustomerId = customerId;
+    // Validate saloon exists
+    const saloon = await prisma.saloon.findUnique({
+      where: { id: String(targetSaloonId) },
+    });
+    if (!saloon) {
+      throw new AppError('Selected saloon not found', 404);
+    }
 
-    if (!targetCustomerId) {
-      if (!customerPhone && !customerEmail && !customerName) {
-        throw new AppError('Customer details (Name, Phone or Email) are required', 400);
-      }
-
-      // Check if existing customer matches phone or email
-      let existingCustomer = null;
-      if (customerPhone) {
-        existingCustomer = await prisma.customer.findUnique({ where: { phone: customerPhone } });
-      }
-      if (!existingCustomer && customerEmail) {
-        existingCustomer = await prisma.customer.findUnique({ where: { email: customerEmail } });
-      }
-
-      if (existingCustomer) {
-        targetCustomerId = existingCustomer.id;
-      } else {
-        // Create new customer
-        const newCustomer = await prisma.customer.create({
-          data: {
-            name: customerName || 'Walk-in Customer',
-            phone: customerPhone || null,
-            email: customerEmail || null,
-          },
-        });
-        targetCustomerId = newCustomer.id;
-      }
+    // Look up customer — must already exist
+    const targetCustomerId = customerId.trim();
+    const existingCustomer = await prisma.customer.findUnique({
+      where: { id: targetCustomerId },
+    });
+    if (!existingCustomer) {
+      throw new AppError('Customer not found with the provided customerId', 404);
     }
 
     // Validate Items
@@ -426,48 +446,136 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       throw new AppError('Booking must contain at least one item (service or package)', 400);
     }
 
-    // Process & calculate prices for items
+    // Process, validate & calculate prices for items
     let subtotal = 0;
     const processedItems: any[] = [];
 
-    for (const item of items) {
-      let price = Number(item.price) || 0;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || typeof item !== 'object') {
+        throw new AppError(`Item #${i + 1} is invalid`, 400);
+      }
 
-      if (!price && item.serviceId) {
-        const srv = await prisma.service.findUnique({ where: { id: item.serviceId } });
-        if (srv) {
+      const hasService = Boolean(item.serviceId && typeof item.serviceId === 'string' && item.serviceId.trim());
+      const hasPackage = Boolean(item.packageId && typeof item.packageId === 'string' && item.packageId.trim());
+
+      if (!hasService && !hasPackage) {
+        throw new AppError(`Item #${i + 1} must specify either a valid serviceId or packageId`, 400);
+      }
+
+      if (hasService && hasPackage) {
+        throw new AppError(`Item #${i + 1} cannot specify both serviceId and packageId`, 400);
+      }
+
+      let price = (item.price !== undefined && item.price !== null && !isNaN(Number(item.price)))
+        ? Number(item.price)
+        : 0;
+
+      if (price < 0) {
+        throw new AppError(`Price for item #${i + 1} must be a valid non-negative number`, 400);
+      }
+
+      let cleanServiceId: string | null = null;
+      let cleanPackageId: string | null = null;
+
+      if (hasService) {
+        const serviceIdToLookup = item.serviceId.trim();
+        const srv = await prisma.service.findUnique({ where: { id: serviceIdToLookup } });
+        if (!srv) {
+          throw new AppError(`Service not found for item #${i + 1}`, 404);
+        }
+        if (srv.saloonId !== targetSaloonId) {
+          throw new AppError(`Service '${srv.name}' does not belong to the selected saloon`, 400);
+        }
+        cleanServiceId = serviceIdToLookup;
+        if (price === 0) {
           price = srv.discountPrice > 0 ? srv.discountPrice : srv.price;
         }
-      } else if (!price && item.packageId) {
-        const pkg = await prisma.package.findUnique({ where: { id: item.packageId } });
-        if (pkg) {
+      } else if (hasPackage) {
+        const packageIdToLookup = item.packageId.trim();
+        const pkg = await prisma.package.findUnique({ where: { id: packageIdToLookup } });
+        if (!pkg) {
+          throw new AppError(`Package not found for item #${i + 1}`, 404);
+        }
+        if (pkg.saloonId !== targetSaloonId) {
+          throw new AppError(`Package '${pkg.name}' does not belong to the selected saloon`, 400);
+        }
+        cleanPackageId = packageIdToLookup;
+        if (price === 0) {
           price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
         }
       }
 
+      let cleanStaffId: string | null = null;
+      if (item.staffId && typeof item.staffId === 'string' && item.staffId.trim()) {
+        const staffIdToLookup = item.staffId.trim();
+        const staff = await prisma.staff.findUnique({ where: { id: staffIdToLookup } });
+        if (!staff) {
+          throw new AppError(`Staff member not found for item #${i + 1}`, 404);
+        }
+        if (staff.saloonId !== targetSaloonId) {
+          throw new AppError(`Staff member '${staff.name}' does not belong to the selected saloon`, 400);
+        }
+        cleanStaffId = staffIdToLookup;
+      }
+
+      let formattedDate = new Date().toISOString();
+      if (item.date && typeof item.date === 'string' && item.date.trim()) {
+        const parsedDate = new Date(item.date.trim());
+        if (isNaN(parsedDate.getTime())) {
+          throw new AppError(`Invalid date format for item #${i + 1}. Please send a valid ISO date string.`, 400);
+        }
+        formattedDate = parsedDate.toISOString();
+      }
+
       subtotal += price;
       processedItems.push({
-        serviceId: item.serviceId || null,
-        packageId: item.packageId || null,
-        staffId: item.staffId || null,
-        date: item.date || '',
-        timeSlot: item.timeSlot || '',
+        serviceId: cleanServiceId,
+        packageId: cleanPackageId,
+        staffId: cleanStaffId,
+        date: formattedDate,
+        timeSlot: (item.timeSlot && typeof item.timeSlot === 'string') ? item.timeSlot.trim() : '',
         price,
       });
     }
 
-    const numericDiscount = Math.min(Math.max(0, Number(discount) || 0), subtotal);
+    // Validate Discount
+    let numericDiscount = 0;
+    if (discount !== undefined && discount !== null) {
+      numericDiscount = Number(discount);
+      if (isNaN(numericDiscount) || numericDiscount < 0) {
+        throw new AppError('Discount must be a valid non-negative number', 400);
+      }
+      if (numericDiscount > subtotal) {
+        throw new AppError('Discount cannot exceed the subtotal amount', 400);
+      }
+    }
+
     const balanceAfterDiscount = Math.max(0, subtotal - numericDiscount);
 
-    // Calculate membership deduction if requested
+    // Validate and Calculate membership deduction if requested
     let actualMembershipUsed = 0;
-    if (Number(membershipUsed) > 0 && targetCustomerId) {
-      const memSummary = await getCustomerMembershipSummary(targetCustomerId);
-      actualMembershipUsed = Math.min(Math.max(0, Number(membershipUsed)), memSummary.totalBalance, balanceAfterDiscount);
+    if (membershipUsed !== undefined && membershipUsed !== null) {
+      const numMemUsed = Number(membershipUsed);
+      if (isNaN(numMemUsed) || numMemUsed < 0) {
+        throw new AppError('Membership used amount must be a valid non-negative number', 400);
+      }
+
+      if (numMemUsed > 0 && targetCustomerId) {
+        const memSummary = await getCustomerMembershipSummary(targetCustomerId);
+        if (numMemUsed > memSummary.totalBalance) {
+          throw new AppError(`Insufficient membership balance. Customer available balance is ₹${memSummary.totalBalance}`, 400);
+        }
+        if (numMemUsed > balanceAfterDiscount) {
+          throw new AppError('Membership amount used cannot exceed the payable amount after discount', 400);
+        }
+        actualMembershipUsed = numMemUsed;
+      }
     }
 
     const totalAmount = Math.max(0, balanceAfterDiscount - actualMembershipUsed);
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
 
     const newBooking = await prisma.$transaction(async (tx) => {
       const booking = await tx.booking.create({
@@ -481,7 +589,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           discount: numericDiscount,
           membershipUsed: actualMembershipUsed,
           totalAmount,
-          couponCode: couponCode || '',
+          couponCode: sanitizedCouponCode,
           items: {
             create: processedItems,
           },

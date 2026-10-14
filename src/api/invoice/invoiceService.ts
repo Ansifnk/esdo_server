@@ -61,13 +61,13 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
   // Construct unique invoice number
   const invoiceNumber = `INV-${booking.bookingNumber.startsWith('BK-') ? booking.bookingNumber.substring(3) : booking.bookingNumber}`;
 
-  // Snapshot item details
+  // Snapshot item details - store standard ISO strings in database
   const itemSnapshots = (booking.items || []).map((item) => ({
     id: item.id,
     name: item.service?.name || item.package?.name || 'Appointment Item',
     type: item.packageId ? 'Package' : 'Service',
     staffName: item.staff?.name || null,
-    date: item.date || '',
+    date: item.date || new Date().toISOString(),
     timeSlot: item.timeSlot || '',
     price: item.price,
   }));

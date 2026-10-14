@@ -455,23 +455,17 @@ export const deleteStaff = async (req: Request, res: Response): Promise<void> =>
 };
 
 /**
- * Helper to normalize date strings for comparison (e.g. "Today, 5 Oct", "2026-10-05", "5 Oct" -> "5 oct")
+ * Helper to extract ISO date key (YYYY-MM-DD) from an ISO date string for comparison.
+ * Frontend always sends ISO dates (e.g. "2026-10-05T00:00:00.000Z").
  */
 export function extractDateMatchKey(dateStr: string): string {
   if (!dateStr) return '';
   const trimmed = dateStr.trim();
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
   if (isoMatch) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const mIdx = parseInt(isoMatch[2], 10) - 1;
-    const dNum = parseInt(isoMatch[3], 10);
-    return `${dNum} ${months[mIdx]}`.toLowerCase();
+    return isoMatch[1];
   }
-  const labelMatch = trimmed.match(/(\d{1,2})\s+([A-Za-z]{3,})/);
-  if (labelMatch) {
-    return `${parseInt(labelMatch[1], 10)} ${labelMatch[2].slice(0, 3)}`.toLowerCase();
-  }
-  return trimmed.toLowerCase();
+  return trimmed;
 }
 
 /**
