@@ -355,12 +355,13 @@ export const getMyMembership = async (req: Request, res: Response): Promise<void
         membership: { customerId },
       },
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      take: 50,
       include: {
         booking: {
           select: {
             id: true,
             bookingNumber: true,
+            totalAmount: true,
             createdAt: true,
           },
         },

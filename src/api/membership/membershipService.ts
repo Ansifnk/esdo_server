@@ -16,12 +16,11 @@ export interface MembershipSummary {
 export async function getCustomerMembershipSummary(customerId: string): Promise<MembershipSummary> {
   const now = new Date();
 
-  // Find all active memberships that have balance > 0 and haven't expired
+  // Find all active memberships that haven't expired (including those with 0 balance)
   const allActiveMemberships = await prisma.membership.findMany({
     where: {
       customerId,
       isActive: true,
-      balance: { gt: 0 },
       OR: [
         { endDate: null },
         { endDate: { gte: now } },
@@ -34,7 +33,7 @@ export async function getCustomerMembershipSummary(customerId: string): Promise<
     ],
   });
 
-  const totalBalance = allActiveMemberships.reduce((sum, m) => sum + m.balance, 0);
+  const totalBalance = allActiveMemberships.reduce((sum, m) => sum + Math.max(0, m.balance), 0);
   const hasMembership = allActiveMemberships.length > 0;
 
   // Find nearest expiry date among active memberships

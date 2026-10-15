@@ -119,7 +119,7 @@ export async function createBookingAndClearCart(
 
   const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
 
-  // Validate points redemption according to dynamic policy
+  // 1. Rewards & coupon discounts applied
   const { allowedPoints: actualPointsUsed, discountAmount: pointsDiscountAmount } =
     await rewardCoinService.validateRedemption({
       customerPoints: customer.points,
@@ -128,17 +128,18 @@ export async function createBookingAndClearCart(
       hasCoupon: Boolean(cart.couponCode),
     });
 
-  const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscountAmount);
+  const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscountAmount);
 
-  // Calculate membership used
+  // 2. The balance is paid with membership balance
   let actualMembershipUsed = 0;
   if (membershipToUse > 0) {
     const memSummary = await getCustomerMembershipSummary(customerId);
-    actualMembershipUsed = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
+    actualMembershipUsed = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
   }
 
+  // 3. If membership is depleted, its balance is paid by money
   const finalDiscount = couponDiscount + pointsDiscountAmount;
-  const totalAmount = Math.max(0, remainingAfterPoints - actualMembershipUsed);
+  const totalAmount = Math.max(0, remainingAfterDiscounts - actualMembershipUsed);
 
   // Dynamic spend-based coins earned
   const pointsEarned = await rewardCoinService.calculateCoinsEarned(subtotal);
@@ -323,6 +324,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     }
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
+
+    // 1. Customer can use rewards and coupons
     const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
       await rewardCoinService.validateRedemption({
         customerPoints: customer.points,
@@ -330,11 +333,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         pointsToUse,
         hasCoupon: Boolean(cart.couponCode),
       });
-    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscount);
+    const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscount);
 
+    // 2. The balance is paid with membership balance
     const memSummary = await getCustomerMembershipSummary(customerId);
-    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
-    const finalTotal = Math.max(0, remainingAfterPoints - validMembershipToUse);
+    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
+
+    // 3. If membership is depleted, its balance is paid by money
+    const finalTotal = Math.max(0, remainingAfterDiscounts - validMembershipToUse);
 
     // If fully covered by membership + points, create booking directly!
     if (finalTotal === 0) {
@@ -419,7 +425,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     );
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
-    res.json(new AppResponse(error.message || 'Failed to create payment order', {}, statusCode));
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to create payment order', {}, statusCode));
   }
 };
 
@@ -498,7 +504,7 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
     );
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
-    res.json(new AppResponse(error.message || 'Failed to verify payment and create booking', {}, statusCode));
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to verify payment and create booking', {}, statusCode));
   }
 };
 
@@ -571,6 +577,8 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     }
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
+
+    // 1. Rewards & coupon discount
     const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
       await rewardCoinService.validateRedemption({
         customerPoints: customer.points,
@@ -578,15 +586,16 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
         pointsToUse,
         hasCoupon: Boolean(cart.couponCode),
       });
-    const remainingAfterPoints = Math.max(0, subtotal - couponDiscount - pointsDiscount);
+    const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscount);
 
+    // 2. The balance is paid with membership balance
     const memSummary = await getCustomerMembershipSummary(customerId);
-    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterPoints);
-    const finalTotal = Math.max(0, remainingAfterPoints - validMembershipToUse);
+    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
+    const finalTotal = Math.max(0, remainingAfterDiscounts - validMembershipToUse);
 
     if (finalTotal > 0) {
       throw new AppError(
-        `Membership balance (₹${validMembershipToUse}) does not cover full order amount (₹${remainingAfterPoints}). Please proceed with online payment.`,
+        `Membership balance (₹${validMembershipToUse}) does not cover full remaining order amount (₹${remainingAfterDiscounts}). Please proceed with online payment.`,
         400
       );
     }
@@ -619,7 +628,7 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     );
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
-    res.json(new AppResponse(error.message || 'Failed to complete booking with membership', {}, statusCode));
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to complete booking with membership', {}, statusCode));
   }
 };
 
