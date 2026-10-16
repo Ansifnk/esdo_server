@@ -10,15 +10,24 @@ import { rewardSettingService } from '../rewards/rewardSettingService';
 import { referralService } from '../rewards/referralService';
 
 /**
- * Helper to calculate subtotal, discount, and total for a cart
+ * Helper to calculate subtotal, discount, tax, and total for a cart
  */
 async function calculateCartSummary(cart: any, customerId?: string) {
   const items = cart.items || [];
-  let subtotal = 0;
+  let discountedSubtotal = 0;
+  let originalServiceTotal = 0;
+  let hasPackage = false;
 
   for (const item of items) {
-    const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
-    subtotal += itemPrice;
+    if (item.packageId || item.package) {
+      hasPackage = true;
+    }
+
+    const originalPrice = item.service?.price || item.package?.price || item.price || 0;
+    const discountedPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+
+    originalServiceTotal += originalPrice;
+    discountedSubtotal += discountedPrice;
   }
 
   let discount = 0;
@@ -34,7 +43,7 @@ async function calculateCartSummary(cart: any, customerId?: string) {
 
     if (offer) {
       if (offer.discountType === 'PERCENTAGE') {
-        discount = (subtotal * offer.discountValue) / 100;
+        discount = (discountedSubtotal * offer.discountValue) / 100;
       } else if (offer.discountType === 'FIXED') {
         discount = offer.discountValue;
       }
@@ -46,7 +55,7 @@ async function calculateCartSummary(cart: any, customerId?: string) {
           trimmedCode
         );
         if (referralCheck.valid) {
-          if (subtotal >= referralCheck.minOrderAmount) {
+          if (discountedSubtotal >= referralCheck.minOrderAmount) {
             discount = referralCheck.discountAmount;
           }
         }
@@ -56,13 +65,24 @@ async function calculateCartSummary(cart: any, customerId?: string) {
     }
   }
 
-  discount = Math.min(discount, subtotal);
-  const total = Math.max(0, subtotal - discount);
+  discount = Math.min(discount, discountedSubtotal);
+  const taxableBase = Math.max(0, discountedSubtotal - discount);
+  const taxRate = 0.05;
+  const taxAmount = Math.round(taxableBase * taxRate * 100) / 100;
+  const onlineTotal = Math.round((taxableBase + taxAmount) * 100) / 100;
 
   return {
-    subtotal,
+    hasPackage,
+    originalServiceTotal,
+    discountedSubtotal,
+    subtotal: discountedSubtotal,
     discount,
-    total,
+    couponDiscount: discount,
+    taxRate,
+    taxAmount,
+    taxableBase,
+    onlineTotal,
+    total: onlineTotal,
   };
 }
 

@@ -24,9 +24,17 @@ const razorpay = new Razorpay({
 async function getCartTotalAndDiscount(cart: any) {
   const items = cart.items || [];
   let subtotal = 0;
+  let originalServiceTotal = 0;
+  let hasPackage = false;
 
   for (const item of items) {
+    if (item.packageId || item.package) {
+      hasPackage = true;
+    }
+    const itemOriginalPrice = item.service?.price || item.package?.price || item.price || 0;
     const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+
+    originalServiceTotal += itemOriginalPrice;
     subtotal += itemPrice;
   }
 
@@ -60,7 +68,7 @@ async function getCartTotalAndDiscount(cart: any) {
   }
 
   discount = Math.min(discount, subtotal);
-  return { subtotal, couponDiscount: discount };
+  return { subtotal, originalServiceTotal, hasPackage, couponDiscount: discount };
 }
 
 /**
@@ -70,7 +78,8 @@ export async function createBookingAndClearCart(
   customerId: string,
   payment: any,
   pointsToUse: number = 0,
-  membershipToUse: number = 0
+  membershipToUse: number = 0,
+  isMembershipPayment: boolean = false
 ) {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
@@ -117,32 +126,65 @@ export async function createBookingAndClearCart(
     throw new AppError('Cart is empty', 400);
   }
 
-  const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
+  const { subtotal, originalServiceTotal, hasPackage, couponDiscount } = await getCartTotalAndDiscount(cart);
 
-  // 1. Rewards & coupon discounts applied
-  const { allowedPoints: actualPointsUsed, discountAmount: pointsDiscountAmount } =
-    await rewardCoinService.validateRedemption({
-      customerPoints: customer.points,
-      subtotal,
-      pointsToUse,
-      hasCoupon: Boolean(cart.couponCode),
-    });
-
-  const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscountAmount);
-
-  // 2. The balance is paid with membership balance
+  let bookingSubtotal = 0;
+  let finalDiscount = 0;
+  let totalAmount = 0;
   let actualMembershipUsed = 0;
-  if (membershipToUse > 0) {
+  let actualPointsUsed = 0;
+  let pointsEarned = 0;
+  let savedCouponCode = '';
+
+  if (isMembershipPayment || membershipToUse > 0) {
+    // Membership payment:
+    // 1. Must not have packages
+    if (hasPackage) {
+      throw new AppError('Packages cannot be purchased using membership balance. Please proceed with online payment.', 400);
+    }
+
+    // 2. Must not exceed membership balance
     const memSummary = await getCustomerMembershipSummary(customerId);
-    actualMembershipUsed = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
+    if (!memSummary.hasMembership || memSummary.totalBalance < originalServiceTotal) {
+      throw new AppError(
+        `Cart total (₹${originalServiceTotal}) exceeds available membership balance (₹${memSummary.totalBalance || 0}). Split payment is not allowed. Please proceed with online payment.`,
+        400
+      );
+    }
+
+    // 3. Takes original service price, no discounts, no coupons
+    bookingSubtotal = originalServiceTotal;
+    finalDiscount = 0;
+    actualMembershipUsed = originalServiceTotal;
+    totalAmount = 0;
+    actualPointsUsed = 0;
+    savedCouponCode = '';
+    pointsEarned = await rewardCoinService.calculateCoinsEarned(bookingSubtotal);
+  } else {
+    // Online payment (Razorpay):
+    // 1. Takes discounted subtotal
+    // 2. Rewards and coupon discounts applied
+    const { allowedPoints, discountAmount: pointsDiscountAmount } =
+      await rewardCoinService.validateRedemption({
+        customerPoints: customer.points,
+        subtotal,
+        pointsToUse,
+        hasCoupon: Boolean(cart.couponCode),
+      });
+
+    actualPointsUsed = allowedPoints;
+    finalDiscount = couponDiscount + pointsDiscountAmount;
+    const taxableBase = Math.max(0, subtotal - finalDiscount);
+
+    // 3. Add 5% tax
+    const taxAmount = Math.round(taxableBase * 0.05 * 100) / 100;
+    totalAmount = Math.round((taxableBase + taxAmount) * 100) / 100;
+
+    bookingSubtotal = subtotal;
+    actualMembershipUsed = 0;
+    savedCouponCode = cart.couponCode || '';
+    pointsEarned = await rewardCoinService.calculateCoinsEarned(subtotal);
   }
-
-  // 3. If membership is depleted, its balance is paid by money
-  const finalDiscount = couponDiscount + pointsDiscountAmount;
-  const totalAmount = Math.max(0, remainingAfterDiscounts - actualMembershipUsed);
-
-  // Dynamic spend-based coins earned
-  const pointsEarned = await rewardCoinService.calculateCoinsEarned(subtotal);
 
   // Extract saloonId if available from service or package
   let saloonId: string | null = null;
@@ -169,13 +211,13 @@ export async function createBookingAndClearCart(
         saloonId,
         status: 'CONFIRMED',
         paymentStatus: 'SUCCESS',
-        subtotal,
+        subtotal: bookingSubtotal,
         discount: finalDiscount,
         totalAmount,
         pointsUsed: actualPointsUsed,
         membershipUsed: actualMembershipUsed,
         pointsEarned,
-        couponCode: cart.couponCode || '',
+        couponCode: savedCouponCode,
         paymentId: payment ? payment.id : null,
         items: {
           create: cart.items.map((item) => ({
@@ -325,7 +367,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
 
-    // 1. Customer can use rewards and coupons
+    // Online payment: rewards and coupons apply, split membership is not allowed
     const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
       await rewardCoinService.validateRedemption({
         customerPoints: customer.points,
@@ -333,44 +375,10 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         pointsToUse,
         hasCoupon: Boolean(cart.couponCode),
       });
-    const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscount);
 
-    // 2. The balance is paid with membership balance
-    const memSummary = await getCustomerMembershipSummary(customerId);
-    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
-
-    // 3. If membership is depleted, its balance is paid by money
-    const finalTotal = Math.max(0, remainingAfterDiscounts - validMembershipToUse);
-
-    // If fully covered by membership + points, create booking directly!
-    if (finalTotal === 0) {
-      const payment = await prisma.payment.create({
-        data: {
-          razorpayOrderId: `mem_order_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
-          amount: 0,
-          currency: 'INR',
-          status: 'SUCCESS',
-          customerId,
-        },
-      });
-
-      const booking = await createBookingAndClearCart(
-        customerId,
-        payment,
-        validPointsToUse,
-        validMembershipToUse
-      );
-
-      res.json(
-        new AppResponse('Order paid completely with membership benefits', {
-          booking,
-          isZeroAmount: true,
-          pointsToUse: validPointsToUse,
-          membershipToUse: validMembershipToUse,
-        })
-      );
-      return;
-    }
+    const taxableAmount = Math.max(0, subtotal - couponDiscount - pointsDiscount);
+    const taxAmount = Math.round(taxableAmount * 0.05 * 100) / 100;
+    const finalTotal = Math.round((taxableAmount + taxAmount) * 100) / 100;
 
     const amountInPaise = Math.round(finalTotal * 100);
 
@@ -386,7 +394,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
           customerId,
           cartId: cart.id,
           pointsToUse: validPointsToUse,
-          membershipToUse: validMembershipToUse,
+          membershipToUse: 0,
         },
       });
     } catch (rzpErr: any) {
@@ -419,7 +427,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         currency: 'INR',
         keyId: RAZORPAY_KEY_ID,
         pointsToUse: validPointsToUse,
-        membershipToUse: validMembershipToUse,
+        membershipToUse: 0,
+        taxAmount,
         couponCode: cart.couponCode,
       })
     );
@@ -445,7 +454,6 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
       razorpayPaymentId,
       razorpaySignature,
       pointsToUse = 0,
-      membershipToUse = 0,
     } = req.body;
 
     if (!razorpayOrderId || !razorpayPaymentId) {
@@ -488,12 +496,13 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
       },
     });
 
-    // Create booking and clear cart
+    // Create booking and clear cart (Online payment: membershipToUse = 0, isMembership = false)
     const booking = await createBookingAndClearCart(
       customerId,
       updatedPayment,
       pointsToUse,
-      membershipToUse
+      0,
+      false
     );
 
     res.json(
@@ -518,8 +527,6 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     if (!customerId) {
       throw new AppError('Authentication required', 401);
     }
-
-    const { pointsToUse = 0, membershipToUse = 0 } = req.body;
 
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
@@ -576,26 +583,19 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
       }
     }
 
-    const { subtotal, couponDiscount } = await getCartTotalAndDiscount(cart);
+    const { originalServiceTotal, hasPackage } = await getCartTotalAndDiscount(cart);
 
-    // 1. Rewards & coupon discount
-    const { allowedPoints: validPointsToUse, discountAmount: pointsDiscount } =
-      await rewardCoinService.validateRedemption({
-        customerPoints: customer.points,
-        subtotal,
-        pointsToUse,
-        hasCoupon: Boolean(cart.couponCode),
-      });
-    const remainingAfterDiscounts = Math.max(0, subtotal - couponDiscount - pointsDiscount);
-
-    // 2. The balance is paid with membership balance
-    const memSummary = await getCustomerMembershipSummary(customerId);
-    const validMembershipToUse = Math.min(Math.max(0, membershipToUse), memSummary.totalBalance, remainingAfterDiscounts);
-    const finalTotal = Math.max(0, remainingAfterDiscounts - validMembershipToUse);
-
-    if (finalTotal > 0) {
+    if (hasPackage) {
       throw new AppError(
-        `Membership balance (₹${validMembershipToUse}) does not cover full remaining order amount (₹${remainingAfterDiscounts}). Please proceed with online payment.`,
+        'Packages cannot be purchased using membership balance. Please proceed with online payment.',
+        400
+      );
+    }
+
+    const memSummary = await getCustomerMembershipSummary(customerId);
+    if (!memSummary.hasMembership || memSummary.totalBalance < originalServiceTotal) {
+      throw new AppError(
+        `Cart total (₹${originalServiceTotal}) exceeds your available membership balance (₹${memSummary.totalBalance || 0}). Split payment is not allowed. Please proceed with online payment.`,
         400
       );
     }
@@ -613,8 +613,9 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     const booking = await createBookingAndClearCart(
       customerId,
       payment,
-      validPointsToUse,
-      validMembershipToUse
+      0,
+      originalServiceTotal,
+      true
     );
 
     res.json(
@@ -622,8 +623,8 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
         booking,
         payment,
         isZeroAmount: true,
-        membershipUsed: validMembershipToUse,
-        pointsUsed: validPointsToUse,
+        membershipUsed: originalServiceTotal,
+        pointsUsed: 0,
       })
     );
   } catch (error: any) {
