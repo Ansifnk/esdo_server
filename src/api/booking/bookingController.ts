@@ -37,6 +37,17 @@ export const getCustomerBookings = async (req: Request, res: Response): Promise<
         saloon: true,
         payment: true,
         invoice: true,
+        reviews: {
+          include: {
+            staff: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -77,6 +88,17 @@ export const getCustomerBookingById = async (req: Request, res: Response): Promi
               },
             },
             staff: true,
+          },
+        },
+        reviews: {
+          include: {
+            staff: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            },
           },
         },
       },
@@ -197,6 +219,17 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
               staff: true,
             },
           },
+          reviews: {
+            include: {
+              staff: {
+                select: {
+                  id: true,
+                  name: true,
+                  image: true,
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: paginationParams.offset,
@@ -238,6 +271,17 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
               },
             },
             staff: true,
+          },
+        },
+        reviews: {
+          include: {
+            staff: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            },
           },
         },
       },

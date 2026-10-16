@@ -156,6 +156,9 @@ model Staff {
   attendances     StaffAttendance[]
   cartItems       CartItem[]
   bookingItems    BookingItem[]
+  reviews         Review[]
+  avgRating       Float             @default(0)
+  ratingCount     Int               @default(0)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -253,6 +256,8 @@ enum DiscountType {
 enum BannerPlacement {
   HERO
   INTERSTITIAL
+  AFTER_SERVICES
+  AFTER_PACKAGES
 }
 
 model Offer {
@@ -382,6 +387,7 @@ model Booking {
   invoice                Invoice?
   rewardTransactions     RewardTransaction[]
   referralsQualified     Referral[]
+  reviews                Review[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 }
@@ -428,6 +434,10 @@ model Review {
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
   userId     String?
   user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staffId    String?
+  staff      Staff?    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  bookingId  String?
+  booking    Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   rating     Float     @default(5)
   comment    String
   userName   String    @default("")
@@ -437,6 +447,8 @@ model Review {
   @@index([serviceId])
   @@index([saloonId])
   @@index([customerId])
+  @@index([staffId])
+  @@index([bookingId])
 }
 
 model Invoice {

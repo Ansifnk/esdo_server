@@ -194,6 +194,11 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
           categories: true,
           subCategories: true,
           slots: true,
+          reviews: {
+            select: {
+              rating: true,
+            },
+          },
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -202,8 +207,20 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
       prisma.staff.count({ where }),
     ]);
 
+    const formattedStaffs = staffs.map((s: any) => {
+      const avg = s.avgRating;
+      const count = s.ratingCount;
+      return {
+        ...s,
+        avgRating: avg,
+        ratingCount: count,
+        rating: avg,
+        reviewsCount: count,
+      };
+    });
+
     const meta = getPaginationMeta(total, pagination);
-    res.json(new AppResponse('Staff members retrieved successfully', staffs, 200, meta));
+    res.json(new AppResponse('Staff members retrieved successfully', formattedStaffs, 200, meta));
   } catch (error: any) {
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
   }
@@ -229,6 +246,11 @@ export const getStaffById = async (req: Request, res: Response): Promise<void> =
         categories: true,
         subCategories: true,
         slots: true,
+        reviews: {
+          select: {
+            rating: true,
+          },
+        },
       },
     });
 
@@ -247,7 +269,17 @@ export const getStaffById = async (req: Request, res: Response): Promise<void> =
       }
     }
 
-    res.json(new AppResponse('Staff member retrieved successfully', staff, 200));
+    const avg = staff.avgRating;
+    const count = staff.ratingCount;
+    const formattedStaff = {
+      ...staff,
+      avgRating: avg,
+      ratingCount: count,
+      rating: avg,
+      reviewsCount: count,
+    };
+
+    res.json(new AppResponse('Staff member retrieved successfully', formattedStaff, 200));
   } catch (error: any) {
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, 500));
   }
