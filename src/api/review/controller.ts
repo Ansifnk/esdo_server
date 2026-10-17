@@ -126,6 +126,34 @@ export const syncStaffReviewStats = async (
   }
 };
 
+export const syncServiceReviewStats = async (
+  serviceId: string,
+  tx?: Prisma.TransactionClient
+): Promise<void> => {
+  try {
+    const client = tx || prisma;
+    const stats = await client.review.aggregate({
+      where: { serviceId },
+      _avg: { rating: true },
+      _count: { _all: true },
+    });
+
+    const avgRating = stats._avg.rating ? Math.round(stats._avg.rating * 10) / 10 : 0;
+    const ratingCount = stats._count._all;
+
+    await client.service.update({
+      where: { id: serviceId },
+      data: {
+        avgRating,
+        ratingCount,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to sync service review stats:', err);
+    throw err;
+  }
+};
+
 export const createReview = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('rating').isFloat({ min: 1, max: 5 }).withMessage('Rating must be a number between 1 and 5').run(req);
@@ -236,6 +264,10 @@ export const createReview = async (req: Request, res: Response): Promise<void> =
           if (targetStaffId) {
             await syncStaffReviewStats(targetStaffId, tx);
           }
+          const targetServiceId = updated.serviceId || serviceId;
+          if (targetServiceId) {
+            await syncServiceReviewStats(targetServiceId, tx);
+          }
 
           return { isUpdated: true, review: updated };
         }
@@ -284,6 +316,9 @@ export const createReview = async (req: Request, res: Response): Promise<void> =
 
       if (review.staffId) {
         await syncStaffReviewStats(review.staffId, tx);
+      }
+      if (review.serviceId) {
+        await syncServiceReviewStats(review.serviceId, tx);
       }
 
       return { isUpdated: false, review };
@@ -367,6 +402,9 @@ export const deleteReview = async (req: Request, res: Response): Promise<void> =
 
       if (review.staffId) {
         await syncStaffReviewStats(review.staffId, tx);
+      }
+      if (review.serviceId) {
+        await syncServiceReviewStats(review.serviceId, tx);
       }
     });
 

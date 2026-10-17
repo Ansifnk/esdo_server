@@ -46,6 +46,13 @@ export const getCustomerBookings = async (req: Request, res: Response): Promise<
                 image: true,
               },
             },
+            service: {
+              select: {
+                id: true,
+                name: true,
+                primaryImage: true,
+              },
+            },
           },
         },
       },
@@ -97,6 +104,13 @@ export const getCustomerBookingById = async (req: Request, res: Response): Promi
                 id: true,
                 name: true,
                 image: true,
+              },
+            },
+            service: {
+              select: {
+                id: true,
+                name: true,
+                primaryImage: true,
               },
             },
           },
@@ -228,6 +242,13 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
                   image: true,
                 },
               },
+              service: {
+                select: {
+                  id: true,
+                  name: true,
+                  primaryImage: true,
+                },
+              },
             },
           },
         },
@@ -280,6 +301,13 @@ export const getAdminBookingById = async (req: Request, res: Response): Promise<
                 id: true,
                 name: true,
                 image: true,
+              },
+            },
+            service: {
+              select: {
+                id: true,
+                name: true,
+                primaryImage: true,
               },
             },
           },

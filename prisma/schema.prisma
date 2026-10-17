@@ -208,6 +208,8 @@ model Service {
   cartItems        CartItem[]
   bookingItems     BookingItem[]
   reviews          Review[]
+  avgRating        Float         @default(0)
+  ratingCount      Int           @default(0)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 }

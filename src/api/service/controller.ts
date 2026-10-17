@@ -213,8 +213,20 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
       prisma.service.count({ where }),
     ]);
 
+    const formattedServices = services.map((s: any) => {
+      const avg = s.avgRating ?? 0;
+      const count = s.ratingCount ?? 0;
+      return {
+        ...s,
+        avgRating: avg,
+        ratingCount: count,
+        rating: avg,
+        reviewsCount: count,
+      };
+    });
+
     const meta = getPaginationMeta(total, pagination);
-    res.json(new AppResponse('Services retrieved successfully', services, 200, meta));
+    res.json(new AppResponse('Services retrieved successfully', formattedServices, 200, meta));
   } catch (error: any) {
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
@@ -249,7 +261,17 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    res.json(new AppResponse('Service retrieved successfully', service, 200));
+    const avg = service.avgRating ?? 0;
+    const count = service.ratingCount ?? 0;
+    const formattedService = {
+      ...service,
+      avgRating: avg,
+      ratingCount: count,
+      rating: avg,
+      reviewsCount: count,
+    };
+
+    res.json(new AppResponse('Service retrieved successfully', formattedService, 200));
   } catch (error: any) {
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
