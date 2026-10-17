@@ -31,6 +31,9 @@ async function calculateCartSummary(cart: any, customerId?: string) {
   }
 
   let discount = 0;
+  let couponError: string | null = null;
+  let couponMinCartValue: number | null = null;
+
   if (cart.couponCode) {
     const trimmedCode = cart.couponCode.trim();
     // Check if there is an active offer coupon matching couponCode
@@ -42,7 +45,11 @@ async function calculateCartSummary(cart: any, customerId?: string) {
     });
 
     if (offer) {
-      if (offer.discountType === 'PERCENTAGE') {
+      couponMinCartValue = offer.minCartValue || 0;
+      if (offer.minCartValue && offer.minCartValue > 0 && discountedSubtotal < offer.minCartValue) {
+        discount = 0;
+        couponError = `Minimum cart value of ₹${offer.minCartValue} is required to apply coupon ${offer.couponCode}.`;
+      } else if (offer.discountType === 'PERCENTAGE') {
         discount = (discountedSubtotal * offer.discountValue) / 100;
       } else if (offer.discountType === 'FIXED') {
         discount = offer.discountValue;
@@ -57,6 +64,8 @@ async function calculateCartSummary(cart: any, customerId?: string) {
         if (referralCheck.valid) {
           if (discountedSubtotal >= referralCheck.minOrderAmount) {
             discount = referralCheck.discountAmount;
+          } else {
+            couponError = `Minimum order amount of ₹${referralCheck.minOrderAmount} is required for this referral code.`;
           }
         }
       } catch (_e) {
@@ -83,6 +92,9 @@ async function calculateCartSummary(cart: any, customerId?: string) {
     taxableBase,
     onlineTotal,
     total: onlineTotal,
+    couponCode: cart.couponCode || null,
+    couponError,
+    couponMinCartValue,
   };
 }
 
@@ -408,11 +420,31 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
 
     let cart = await prisma.cart.findUnique({
       where: { customerId },
+      include: {
+        items: {
+          include: {
+            service: true,
+            package: true,
+            staff: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     if (!cart) {
       cart = await prisma.cart.create({
         data: { customerId },
+        include: {
+          items: {
+            include: {
+              service: true,
+              package: true,
+              staff: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
       });
     }
 
@@ -430,6 +462,15 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
             trimmed
           );
           if (refResult.valid) {
+            // Check minimum order amount for referral code
+            let currentSubtotal = 0;
+            for (const item of cart.items) {
+              const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+              currentSubtotal += itemPrice;
+            }
+            if (currentSubtotal < refResult.minOrderAmount) {
+              throw new AppError(`Minimum order amount of ₹${refResult.minOrderAmount} is required to apply this referral code`, 400);
+            }
             // Link referral if customer not yet linked
             try {
               await referralService.applyReferralCode(customerId, trimmed);
@@ -439,6 +480,29 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
           }
         } catch (refErr: any) {
           throw new AppError(refErr.message || 'Invalid coupon or referral code', 400);
+        }
+      } else {
+        // Check date validity
+        const now = new Date();
+        if (offer.startDate && new Date(offer.startDate) > now) {
+          throw new AppError('This coupon is not active yet', 400);
+        }
+        if (offer.endDate && new Date(offer.endDate) < now) {
+          throw new AppError('This coupon has expired', 400);
+        }
+
+        // Calculate cart subtotal
+        let currentSubtotal = 0;
+        for (const item of cart.items) {
+          const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+          currentSubtotal += itemPrice;
+        }
+
+        if (offer.minCartValue && offer.minCartValue > 0 && currentSubtotal < offer.minCartValue) {
+          throw new AppError(
+            `Minimum cart value of ₹${offer.minCartValue} is required to apply this coupon code.`,
+            400
+          );
         }
       }
     }
@@ -469,6 +533,6 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
     );
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
-    res.json(new AppResponse(error.message || 'Failed to apply code', {}, statusCode));
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to apply code', {}, statusCode));
   }
 };

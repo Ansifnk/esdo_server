@@ -49,7 +49,15 @@ async function getCartTotalAndDiscount(cart: any) {
     });
 
     if (offer) {
-      if (offer.discountType === 'PERCENTAGE') {
+      const now = new Date();
+      const isDateValid = (!offer.startDate || new Date(offer.startDate) <= now) &&
+                          (!offer.endDate || new Date(offer.endDate) >= now);
+
+      if (!isDateValid) {
+        discount = 0;
+      } else if (offer.minCartValue && offer.minCartValue > 0 && subtotal < offer.minCartValue) {
+        discount = 0;
+      } else if (offer.discountType === 'PERCENTAGE') {
         discount = (subtotal * offer.discountValue) / 100;
       } else if (offer.discountType === 'FIXED') {
         discount = offer.discountValue;

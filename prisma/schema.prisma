@@ -275,6 +275,7 @@ model Offer {
   couponCode        String          @default("")
   discountType      DiscountType    @default(PERCENTAGE)
   discountValue     Float           @default(0)
+  minCartValue      Float?          @default(0)
   isActive          Boolean         @default(true)
   startDate         DateTime?
   endDate           DateTime?

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Offer" ADD COLUMN     "minCartValue" DOUBLE PRECISION DEFAULT 0;

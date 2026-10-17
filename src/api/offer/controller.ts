@@ -39,6 +39,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       couponCode = '',
       discountType = DiscountType.PERCENTAGE,
       discountValue = 0,
+      minCartValue = 0,
       isActive = true,
       startDate,
       endDate,
@@ -92,6 +93,10 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       }
       if (Number(discountValue) <= 0) {
         res.json(new AppResponse('Discount value must be a positive number', {}, 400));
+        return;
+      }
+      if (minCartValue !== undefined && minCartValue !== null && Number(minCartValue) < 0) {
+        res.json(new AppResponse('Minimum cart value must be 0 or greater', {}, 400));
         return;
       }
     }
@@ -153,6 +158,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
         couponCode: type === OfferType.COUPON ? couponCode : '',
         discountType: discountType,
         discountValue: Number(discountValue) || 0,
+        minCartValue: type === OfferType.COUPON && minCartValue !== undefined && minCartValue !== null ? Number(minCartValue) : 0,
         isActive,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
@@ -376,6 +382,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
       couponCode,
       discountType,
       discountValue,
+      minCartValue,
       isActive,
       startDate,
       endDate,
@@ -434,6 +441,10 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         res.json(new AppResponse('Discount value must be a positive number', {}, 400));
         return;
       }
+      if (minCartValue !== undefined && minCartValue !== null && Number(minCartValue) < 0) {
+        res.json(new AppResponse('Minimum cart value must be 0 or greater', {}, 400));
+        return;
+      }
     }
 
     // Verify services if they are being updated
@@ -483,6 +494,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         couponCode: finalType === OfferType.COUPON ? (couponCode !== undefined ? couponCode : existingOffer.couponCode) : '',
         discountType: discountType !== undefined ? discountType : existingOffer.discountType,
         discountValue: discountValue !== undefined ? (Number(discountValue) || 0) : existingOffer.discountValue,
+        minCartValue: finalType === OfferType.COUPON ? (minCartValue !== undefined && minCartValue !== null ? Number(minCartValue) : existingOffer.minCartValue) : 0,
         isActive: isActive !== undefined ? isActive : existingOffer.isActive,
         startDate: startDate !== undefined ? (startDate ? new Date(startDate) : null) : existingOffer.startDate,
         endDate: endDate !== undefined ? (endDate ? new Date(endDate) : null) : existingOffer.endDate,
