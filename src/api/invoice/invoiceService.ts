@@ -54,8 +54,12 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
     throw new AppError('Booking not found', 404);
   }
 
+  if (booking.status !== 'CONFIRMED' && booking.status !== 'COMPLETED') {
+    throw new AppError('Invoice can only be generated for confirmed bookings', 400);
+  }
+
   if (booking.paymentStatus !== 'SUCCESS') {
-    throw new AppError('Invoice can only be generated for bookings with completed payment', 400);
+    throw new AppError('Invoice can only be generated for paid bookings', 400);
   }
 
   // Construct unique invoice number

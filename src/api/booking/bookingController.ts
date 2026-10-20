@@ -407,7 +407,10 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
       },
     });
 
-    if (updatedBooking.paymentStatus === 'SUCCESS') {
+    if (
+      (updatedBooking.status === 'CONFIRMED' || updatedBooking.status === 'COMPLETED') &&
+      updatedBooking.paymentStatus === 'SUCCESS'
+    ) {
       try {
         await generateOrGetInvoiceForBooking(updatedBooking.id);
       } catch (invErr) {
@@ -707,7 +710,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       return booking;
     });
 
-    if (newBooking.paymentStatus === 'SUCCESS') {
+    if (
+      (newBooking.status === 'CONFIRMED' || newBooking.status === 'COMPLETED') &&
+      newBooking.paymentStatus === 'SUCCESS'
+    ) {
       try {
         await generateOrGetInvoiceForBooking(newBooking.id);
       } catch (invErr) {
