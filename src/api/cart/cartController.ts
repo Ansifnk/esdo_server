@@ -283,12 +283,33 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     let cart = await prisma.cart.findUnique({
       where: { customerId },
+      include: { items: true },
     });
 
     if (!cart) {
       cart = await prisma.cart.create({
         data: { customerId },
+        include: { items: true },
       });
+    }
+
+    if (staffId && date && timeSlot) {
+      const targetDateKey = extractDateMatchKey(date);
+      const targetSlotNorm = normalizeTimeSlot(timeSlot);
+
+      const existingStaffItem = cart.items?.find(
+        (it) =>
+          it.staffId === staffId &&
+          extractDateMatchKey(it.date || '') === targetDateKey &&
+          normalizeTimeSlot(it.timeSlot || '') === targetSlotNorm
+      );
+
+      if (existingStaffItem) {
+        throw new AppError(
+          'This stylist is already selected in your cart for this time slot. A stylist can only serve one client at a time.',
+          400
+        );
+      }
     }
 
     const newItem = await prisma.cartItem.create({

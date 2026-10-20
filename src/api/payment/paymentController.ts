@@ -350,13 +350,30 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Verify none of the items in the cart are unavailable or already booked
-    for (const item of cart.items) {
-      if (item.staffId && item.date && item.timeSlot) {
-        const slotCheck = await isStaffSlotAvailable(item.staffId, item.date, item.timeSlot);
+    for (let i = 0; i < cart.items.length; i++) {
+      const itemA = cart.items[i];
+      for (let j = i + 1; j < cart.items.length; j++) {
+        const itemB = cart.items[j];
+        if (
+          itemA.staffId &&
+          itemB.staffId &&
+          itemA.staffId === itemB.staffId &&
+          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '') &&
+          normalizeTimeSlot(itemA.timeSlot || '') === normalizeTimeSlot(itemB.timeSlot || '')
+        ) {
+          throw new AppError(
+            `A stylist cannot be assigned to multiple services at the same time slot (${itemA.timeSlot}). Please choose different stylists or time slots.`,
+            400
+          );
+        }
+      }
+
+      if (itemA.staffId && itemA.date && itemA.timeSlot) {
+        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot);
         if (!slotCheck.available) {
           throw new AppError(
             slotCheck.reason ||
-              `The slot "${item.timeSlot}" on "${item.date}" is no longer available. Please choose another slot before checking out.`,
+              `The slot "${itemA.timeSlot}" on "${itemA.date}" is no longer available. Please choose another slot before checking out.`,
             400
           );
         }
@@ -547,13 +564,30 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     }
 
     // Check slot availability and conflicts
-    for (const item of cart.items) {
-      if (item.staffId && item.date && item.timeSlot) {
-        const slotCheck = await isStaffSlotAvailable(item.staffId, item.date, item.timeSlot);
+    for (let i = 0; i < cart.items.length; i++) {
+      const itemA = cart.items[i];
+      for (let j = i + 1; j < cart.items.length; j++) {
+        const itemB = cart.items[j];
+        if (
+          itemA.staffId &&
+          itemB.staffId &&
+          itemA.staffId === itemB.staffId &&
+          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '') &&
+          normalizeTimeSlot(itemA.timeSlot || '') === normalizeTimeSlot(itemB.timeSlot || '')
+        ) {
+          throw new AppError(
+            `A stylist cannot be assigned to multiple services at the same time slot (${itemA.timeSlot}). Please choose different stylists or time slots.`,
+            400
+          );
+        }
+      }
+
+      if (itemA.staffId && itemA.date && itemA.timeSlot) {
+        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot);
         if (!slotCheck.available) {
           throw new AppError(
             slotCheck.reason ||
-              `The slot "${item.timeSlot}" on "${item.date}" is no longer available. Please choose another slot before checking out.`,
+              `The slot "${itemA.timeSlot}" on "${itemA.date}" is no longer available. Please choose another slot before checking out.`,
             400
           );
         }
