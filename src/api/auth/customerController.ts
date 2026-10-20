@@ -52,8 +52,10 @@ export const customerLoginSendOtp = async (req: Request, res: Response): Promise
     const otp = generateOtp(4);
     await storeOtp(normalized, otp);
 
-    // Send OTP SMS
-    await sendOtpSms(normalized, otp);
+    if (process.env.USE_STATIC_OTP !== 'true') {
+      // Send OTP SMS
+      await sendOtpSms(normalized, otp);
+    }
 
     res.json(
       new AppResponse('OTP sent successfully', {

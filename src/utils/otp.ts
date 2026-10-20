@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
+import { smsTemplateSend } from './smsUtils';
 
 /**
  * Clean and normalize phone number string
@@ -114,11 +115,23 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
  * Send OTP SMS helper (logs to console in dev mode, extensible for SMS gateway integration)
  */
 export async function sendOtpSms(phone: string, otp: string): Promise<{ success: boolean; message?: string }> {
+  console.log('seniiiii')
   try {
     const normalizedPhone = normalizePhone(phone);
 
-    // Extensible for SMS Gateway (Twilio / MSG91 / Fast2SMS / Firebase)
-    // await smsProvider.send({ to: normalizedPhone, text: `Your ESDO verification code is ${otp}` });
+    const templateId = process.env.SMS_OTP_TEMPLATE_ID;
+    if (!templateId) {
+      return {
+        success: false,
+        message: 'Template id not found'
+      }
+    }
+
+    const result = await smsTemplateSend(templateId, [normalizedPhone]);
+    console.log(result, 'oooooooo')
+    if (!result.success) {
+      return { success: false, message: result.message };
+    }
 
     return { success: true, message: 'OTP sent successfully' };
   } catch (error: any) {
