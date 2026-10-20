@@ -510,8 +510,25 @@ export function extractDateMatchKey(dateStr: string): string {
   if (isoMatch) {
     return isoMatch[1];
   }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
   return trimmed;
 }
+
+/**
+ * Standard list of time slots used across the system
+ */
+export const ALL_STANDARD_TIME_SLOTS = [
+  '07:30', '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00',
+  '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00',
+  '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00',
+  '19:30', '20:00', '20:30',
+];
 
 /**
  * Helper to normalize time slots to standard "HH:MM AM/PM" (e.g. "09:00", "9:00 AM", "13:00" -> "01:00 PM")
@@ -537,8 +554,87 @@ export function normalizeTimeSlot(slotStr: string): string {
 }
 
 /**
+ * Helper to check whether a time slot is available for a given staff member on a specific date.
+ * Validates against both staff working schedule (slots configured/removed in admin) and active bookings.
+ */
+export async function isStaffSlotAvailable(
+  staffId: string,
+  dateStr: string,
+  timeSlotStr: string
+): Promise<{ available: boolean; reason?: string }> {
+  if (!staffId || !dateStr || !timeSlotStr) {
+    return { available: true };
+  }
+
+  const targetDateKey = extractDateMatchKey(dateStr);
+  const targetSlotNorm = normalizeTimeSlot(timeSlotStr);
+
+  const staff = await prisma.staff.findUnique({
+    where: { id: staffId },
+    include: { slots: true },
+  });
+
+  if (!staff) {
+    return { available: false, reason: 'Staff member not found.' };
+  }
+
+  // 1. Check working schedule configured by admin
+  if (targetDateKey && staff.slots) {
+    const schedule = staff.slots.find((s) => extractDateMatchKey(s.date) === targetDateKey);
+    if (schedule) {
+      if (schedule.isWorking === false) {
+        return {
+          available: false,
+          reason: `Stylist ${staff.name} is not available on this date. Please choose another date or stylist.`,
+        };
+      }
+      if (Array.isArray(schedule.slots)) {
+        const allowedNorm = schedule.slots.map(normalizeTimeSlot);
+        if (allowedNorm.length === 0 || !allowedNorm.includes(targetSlotNorm)) {
+          return {
+            available: false,
+            reason: `The time slot "${timeSlotStr}" is not available in ${staff.name}'s schedule. Please choose another slot.`,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Check existing confirmed/completed bookings
+  const existingBookings = await prisma.bookingItem.findMany({
+    where: {
+      staffId,
+      booking: {
+        status: { in: ['CONFIRMED', 'COMPLETED'] },
+      },
+    },
+    select: {
+      date: true,
+      timeSlot: true,
+    },
+  });
+
+  const isConflict = existingBookings.some((item) => {
+    return (
+      extractDateMatchKey(item.date || '') === targetDateKey &&
+      normalizeTimeSlot(item.timeSlot || '') === targetSlotNorm
+    );
+  });
+
+  if (isConflict) {
+    return {
+      available: false,
+      reason: `The time slot "${timeSlotStr}" is already booked for ${staff.name}. Please choose another time slot.`,
+    };
+  }
+
+  return { available: true };
+}
+
+/**
  * GET /api/staffs/:id/booked-slots?date=...
- * Returns unavailable / already booked slots for a specific stylist on a date
+ * Returns unavailable / already booked slots for a specific stylist on a date.
+ * If schedule exists for that date, any slot removed from the schedule by the admin is returned in blockedSlots.
  */
 export const getStaffBookedSlots = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -581,10 +677,21 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
     const targetDateKey = date ? extractDateMatchKey(String(date)) : null;
 
     let isWorking = true;
+    let scheduleFound = false;
+    let allowedSlotsSet: Set<string> | null = null;
+
     if (targetDateKey && staff.slots) {
       const schedule = staff.slots.find((s) => extractDateMatchKey(s.date) === targetDateKey);
-      if (schedule && schedule.isWorking === false) {
-        isWorking = false;
+      if (schedule) {
+        scheduleFound = true;
+        if (schedule.isWorking === false) {
+          isWorking = false;
+        } else if (Array.isArray(schedule.slots)) {
+          allowedSlotsSet = new Set(schedule.slots.map(normalizeTimeSlot));
+          if (allowedSlotsSet.size === 0) {
+            isWorking = false;
+          }
+        }
       }
     }
 
@@ -592,6 +699,17 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
     if (!isWorking) {
       blockedSlotsForDate.push('ALL');
     } else {
+      // 1. If schedule was configured by admin for this date, block any slots removed from schedule.slots
+      if (scheduleFound && allowedSlotsSet) {
+        for (const slot of ALL_STANDARD_TIME_SLOTS) {
+          const norm = normalizeTimeSlot(slot);
+          if (norm && !allowedSlotsSet.has(norm) && !blockedSlotsForDate.includes(norm)) {
+            blockedSlotsForDate.push(norm);
+          }
+        }
+      }
+
+      // 2. Block already booked slots
       for (const item of allBooked) {
         if (!targetDateKey || extractDateMatchKey(item.date) === targetDateKey) {
           const norm = normalizeTimeSlot(item.timeSlot);

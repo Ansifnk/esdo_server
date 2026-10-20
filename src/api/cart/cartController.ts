@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
+import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable } from '../staff/controller';
 import { getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { rewardSettingService } from '../rewards/rewardSettingService';
@@ -241,32 +241,10 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     }
 
     if (staffId && date && timeSlot) {
-      const targetDateKey = extractDateMatchKey(date);
-      const normalizedTargetSlot = normalizeTimeSlot(timeSlot);
-
-      // Check if staff has active confirmed bookings for this date and slot
-      const existingBookings = await prisma.bookingItem.findMany({
-        where: {
-          staffId,
-          booking: {
-            status: { in: ['CONFIRMED', 'COMPLETED'] },
-          },
-        },
-        select: {
-          date: true,
-          timeSlot: true,
-        },
-      });
-
-      const isAlreadyBooked = existingBookings.some((item) => {
-        const itemDateKey = extractDateMatchKey(item.date || '');
-        const itemSlotNorm = normalizeTimeSlot(item.timeSlot || '');
-        return itemDateKey === targetDateKey && itemSlotNorm === normalizedTargetSlot;
-      });
-
-      if (isAlreadyBooked) {
+      const slotCheck = await isStaffSlotAvailable(staffId, date, timeSlot);
+      if (!slotCheck.available) {
         throw new AppError(
-          'This time slot is already booked for this stylist. Please choose another time slot.',
+          slotCheck.reason || 'This time slot is not available for this stylist. Please choose another time slot.',
           400
         );
       }

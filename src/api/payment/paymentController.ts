@@ -6,7 +6,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
-import { extractDateMatchKey, normalizeTimeSlot } from '../staff/controller';
+import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable } from '../staff/controller';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
@@ -337,36 +337,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       throw new AppError('Your cart is empty', 400);
     }
 
-    // Verify none of the items in the cart are already booked by a confirmed booking
+    // Verify none of the items in the cart are unavailable or already booked
     for (const item of cart.items) {
       if (item.staffId && item.date && item.timeSlot) {
-        //TOD: need to recheck why this implemented
-        const targetDateKey = extractDateMatchKey(item.date);
-        const targetSlotNorm = normalizeTimeSlot(item.timeSlot);
-
-        const conflicts = await prisma.bookingItem.findMany({
-          where: {
-            staffId: item.staffId,
-            booking: {
-              status: { in: ['CONFIRMED', 'COMPLETED'] },
-            },
-          },
-          select: {
-            date: true,
-            timeSlot: true,
-          },
-        });
-
-        const isConflict = conflicts.some((c) => {
-          return (
-            extractDateMatchKey(c.date || '') === targetDateKey &&
-            normalizeTimeSlot(c.timeSlot || '') === targetSlotNorm
-          );
-        });
-
-        if (isConflict) {
+        const slotCheck = await isStaffSlotAvailable(item.staffId, item.date, item.timeSlot);
+        if (!slotCheck.available) {
           throw new AppError(
-            `The slot "${item.timeSlot}" on "${item.date}" is already booked. Please choose another slot before checking out.`,
+            slotCheck.reason ||
+              `The slot "${item.timeSlot}" on "${item.date}" is no longer available. Please choose another slot before checking out.`,
             400
           );
         }
@@ -556,35 +534,14 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
       throw new AppError('Your cart is empty', 400);
     }
 
-    // Check slot conflicts
+    // Check slot availability and conflicts
     for (const item of cart.items) {
       if (item.staffId && item.date && item.timeSlot) {
-        const targetDateKey = extractDateMatchKey(item.date);
-        const targetSlotNorm = normalizeTimeSlot(item.timeSlot);
-
-        const conflicts = await prisma.bookingItem.findMany({
-          where: {
-            staffId: item.staffId,
-            booking: {
-              status: { in: ['CONFIRMED', 'COMPLETED'] },
-            },
-          },
-          select: {
-            date: true,
-            timeSlot: true,
-          },
-        });
-
-        const isConflict = conflicts.some((c) => {
-          return (
-            extractDateMatchKey(c.date || '') === targetDateKey &&
-            normalizeTimeSlot(c.timeSlot || '') === targetSlotNorm
-          );
-        });
-
-        if (isConflict) {
+        const slotCheck = await isStaffSlotAvailable(item.staffId, item.date, item.timeSlot);
+        if (!slotCheck.available) {
           throw new AppError(
-            `The slot "${item.timeSlot}" on "${item.date}" is already booked. Please choose another slot before checking out.`,
+            slotCheck.reason ||
+              `The slot "${item.timeSlot}" on "${item.date}" is no longer available. Please choose another slot before checking out.`,
             400
           );
         }
