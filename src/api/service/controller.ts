@@ -9,6 +9,7 @@ import { getPagination, getPaginationMeta } from '../../utils/pagination';
 export const createService = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
+    await body('sacCode').trim().notEmpty().withMessage('SAC code is required').run(req);
     await body('shortDescription').optional().isString().withMessage('Short description must be a string').run(req);
     await body('nickName').optional().isString().withMessage('Nickname must be a string').run(req);
     await body('description').trim().notEmpty().withMessage('Description is required').run(req);
@@ -33,6 +34,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
 
     const {
       name,
+      sacCode,
       shortDescription = '',
       nickName = '',
       description,
@@ -94,10 +96,26 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
+    // Check SAC code uniqueness across services
+    const normalizedSacCode = sacCode.trim();
+    const existingSacService = await prisma.service.findFirst({
+      where: {
+        sacCode: {
+          equals: normalizedSacCode,
+          mode: 'insensitive',
+        },
+      },
+    });
+    if (existingSacService) {
+      res.json(new AppResponse('SAC code already exists', {}, 400));
+      return;
+    }
+
     // Create service in database
     const service = await prisma.service.create({
       data: {
         name,
+        sacCode: normalizedSacCode,
         shortDescription,
         nickName,
         description,
@@ -133,6 +151,10 @@ export const createService = async (req: Request, res: Response): Promise<void> 
 
     res.json(new AppResponse('Service created successfully', service, 201));
   } catch (error: any) {
+    if (error.code === 'P2002' && (error.meta?.target?.includes('sacCode') || String(error.message).includes('sacCode'))) {
+      res.json(new AppResponse('A service with this SAC code already exists', {}, 400));
+      return;
+    }
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
@@ -183,6 +205,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
       andClauses.push({
         OR: [
           { name: { contains: search, mode: 'insensitive' } },
+          { sacCode: { contains: search, mode: 'insensitive' } },
           { nickName: { contains: search, mode: 'insensitive' } },
           { shortDescription: { contains: search, mode: 'insensitive' } },
           { description: { contains: search, mode: 'insensitive' } },
@@ -282,6 +305,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
   try {
     await param('id').isUUID().withMessage('Invalid service ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
+    await body('sacCode').optional().trim().notEmpty().withMessage('SAC code cannot be empty').run(req);
     await body('shortDescription').optional().isString().withMessage('Short description must be a string').run(req);
     await body('nickName').optional().isString().withMessage('Nickname must be a string').run(req);
     await body('description').optional().trim().notEmpty().withMessage('Description cannot be empty').run(req);
@@ -307,6 +331,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     const id = req.params.id as string;
     const {
       name,
+      sacCode,
       shortDescription,
       nickName,
       description,
@@ -365,14 +390,14 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
 
     // Verify related services belong to the target saloon
     const targetSaloonId = saloonId !== undefined ? saloonId : existingService.saloonId;
-    const servicesToCheck = relatedServiceIds !== undefined 
-      ? relatedServiceIds 
-      : (saloonId !== undefined && saloonId !== existingService.saloonId 
-          ? (await prisma.service.findUnique({
-              where: { id },
-              select: { relatedServices: { select: { id: true } } }
-            }))?.relatedServices.map(s => s.id) || []
-          : []);
+    const servicesToCheck = relatedServiceIds !== undefined
+      ? relatedServiceIds
+      : (saloonId !== undefined && saloonId !== existingService.saloonId
+        ? (await prisma.service.findUnique({
+          where: { id },
+          select: { relatedServices: { select: { id: true } } }
+        }))?.relatedServices.map(s => s.id) || []
+        : []);
 
     if (servicesToCheck.length > 0) {
       const uniqueServicesToCheck = [...new Set(servicesToCheck as string[])];
@@ -387,10 +412,30 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
+    if (sacCode !== undefined) {
+      const normalizedSacCode = sacCode.trim();
+      if (normalizedSacCode.toLowerCase() !== (existingService.sacCode || '').toLowerCase()) {
+        const existingSacService = await prisma.service.findFirst({
+          where: {
+            sacCode: {
+              equals: normalizedSacCode,
+              mode: 'insensitive',
+            },
+            NOT: { id },
+          },
+        });
+        if (existingSacService) {
+          res.json(new AppResponse('SAC code already exists. Please choose a unique SAC code', {}, 400));
+          return;
+        }
+      }
+    }
+
     const updatedService = await prisma.service.update({
       where: { id },
       data: {
         name: name !== undefined ? name : existingService.name,
+        sacCode: sacCode !== undefined ? sacCode.trim() : existingService.sacCode,
         shortDescription: shortDescription !== undefined ? shortDescription : existingService.shortDescription,
         nickName: nickName !== undefined ? nickName : existingService.nickName,
         description: description !== undefined ? description : existingService.description,
@@ -426,6 +471,10 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
 
     res.json(new AppResponse('Service updated successfully', updatedService, 200));
   } catch (error: any) {
+    if (error.code === 'P2002' && (error.meta?.target?.includes('sacCode') || String(error.message).includes('sacCode'))) {
+      res.json(new AppResponse('A service with this SAC code already exists', {}, 400));
+      return;
+    }
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }

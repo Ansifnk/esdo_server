@@ -66,6 +66,7 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
     id: item.id,
     name: item.service?.name || item.package?.name || 'Appointment Item',
     type: item.packageId ? 'Package' : 'Service',
+    sacCode: item.service?.sacCode || null,
     staffName: item.staff?.name || null,
     date: item.date || new Date().toISOString(),
     timeSlot: item.timeSlot || '',
