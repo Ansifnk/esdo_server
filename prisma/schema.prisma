@@ -152,6 +152,7 @@ model Staff {
   serviceGender   ServiceGender?
   stylistCategory StylistCategory?
   joiningDate     String            @default("")
+  experience      Float?            @default(0)
   saloonId        String
   saloon          Saloon            @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories      Category[]
