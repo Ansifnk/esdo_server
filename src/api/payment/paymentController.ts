@@ -6,7 +6,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
-import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable } from '../staff/controller';
+import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable, isSlotInPast } from '../staff/controller';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
@@ -368,6 +368,13 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         }
       }
 
+      if (itemA.date && itemA.timeSlot && isSlotInPast(itemA.date, itemA.timeSlot)) {
+        throw new AppError(
+          `The scheduled time slot (${itemA.timeSlot} on ${itemA.date}) has already passed. Please remove or reschedule this item before checkout.`,
+          400
+        );
+      }
+
       if (itemA.staffId && itemA.date && itemA.timeSlot) {
         const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot);
         if (!slotCheck.available) {
@@ -580,6 +587,13 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
             400
           );
         }
+      }
+
+      if (itemA.date && itemA.timeSlot && isSlotInPast(itemA.date, itemA.timeSlot)) {
+        throw new AppError(
+          `The scheduled time slot (${itemA.timeSlot} on ${itemA.date}) has already passed. Please remove or reschedule this item before checkout.`,
+          400
+        );
       }
 
       if (itemA.staffId && itemA.date && itemA.timeSlot) {

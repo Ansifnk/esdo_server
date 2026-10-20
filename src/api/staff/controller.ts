@@ -554,6 +554,51 @@ export function normalizeTimeSlot(slotStr: string): string {
 }
 
 /**
+ * Checks whether a date or a time slot on today's date has already passed.
+ */
+export function isSlotInPast(dateStr?: string | null, timeSlotStr?: string | null): boolean {
+  if (!dateStr) return false;
+
+  const targetDateKey = extractDateMatchKey(dateStr);
+  if (!targetDateKey) return false;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const todayKey = `${year}-${month}-${day}`;
+
+  if (targetDateKey < todayKey) {
+    return true; // Date is in the past
+  }
+
+  if (targetDateKey > todayKey) {
+    return false; // Future date
+  }
+
+  // Same date (today): compare slot minutes
+  if (!timeSlotStr) return false;
+
+  const match = timeSlotStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return false;
+
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const meridiem = match[3].toUpperCase();
+
+  if (meridiem === 'PM' && hours !== 12) {
+    hours += 12;
+  } else if (meridiem === 'AM' && hours === 12) {
+    hours = 0;
+  }
+
+  const slotMinutes = hours * 60 + minutes;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  return slotMinutes <= currentMinutes;
+}
+
+/**
  * Helper to check whether a time slot is available for a given staff member on a specific date.
  * Validates against both staff working schedule (slots configured/removed in admin) and active bookings.
  */
@@ -564,6 +609,13 @@ export async function isStaffSlotAvailable(
 ): Promise<{ available: boolean; reason?: string }> {
   if (!staffId || !dateStr || !timeSlotStr) {
     return { available: true };
+  }
+
+  if (isSlotInPast(dateStr, timeSlotStr)) {
+    return {
+      available: false,
+      reason: 'Cannot book a past date or time slot. Please choose an upcoming time slot.',
+    };
   }
 
   const targetDateKey = extractDateMatchKey(dateStr);
@@ -715,6 +767,18 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
           const norm = normalizeTimeSlot(item.timeSlot);
           if (norm && !blockedSlotsForDate.includes(norm)) {
             blockedSlotsForDate.push(norm);
+          }
+        }
+      }
+
+      // 3. Block any time slots that have already passed
+      if (targetDateKey) {
+        for (const slot of ALL_STANDARD_TIME_SLOTS) {
+          if (isSlotInPast(date ? String(date) : '', slot)) {
+            const norm = normalizeTimeSlot(slot);
+            if (norm && !blockedSlotsForDate.includes(norm)) {
+              blockedSlotsForDate.push(norm);
+            }
           }
         }
       }

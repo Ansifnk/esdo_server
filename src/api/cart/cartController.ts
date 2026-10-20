@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable } from '../staff/controller';
+import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable, isSlotInPast } from '../staff/controller';
 import { getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { rewardSettingService } from '../rewards/rewardSettingService';
@@ -254,6 +254,10 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     if (!serviceId && !packageId) {
       throw new AppError('Either serviceId or packageId is required', 400);
+    }
+
+    if (date && timeSlot && isSlotInPast(date, timeSlot)) {
+      throw new AppError('Cannot book an appointment for a past date or time slot.', 400);
     }
 
     if (staffId && date && timeSlot) {
