@@ -389,9 +389,15 @@ enum PaymentMode {
   BANK_TRANSFER
 }
 
+enum BookingSource {
+  ADMIN
+  WEBSITE
+}
+
 model Booking {
   id                     String                  @id @default(uuid())
   bookingNumber          String                  @unique
+  source                 BookingSource           @default(WEBSITE)
   customerId             String
   customer               Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
   saloonId               String?

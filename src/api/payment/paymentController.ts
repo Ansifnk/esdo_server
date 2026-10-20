@@ -227,6 +227,7 @@ export async function createBookingAndClearCart(
     const newBooking = await tx.booking.create({
       data: {
         bookingNumber,
+        source: 'WEBSITE',
         customerId,
         saloonId,
         status: 'CONFIRMED',

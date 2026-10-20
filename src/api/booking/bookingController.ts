@@ -672,6 +672,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       const booking = await tx.booking.create({
         data: {
           bookingNumber,
+          source: 'ADMIN',
           customerId: targetCustomerId,
           saloonId: targetSaloonId,
           status,
