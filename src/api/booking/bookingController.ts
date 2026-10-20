@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
-import { BookingStatus, PaymentStatus } from '../../generated/prisma/enums';
+import { BookingStatus, PaymentStatus, PaymentMode } from '../../generated/prisma/enums';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
@@ -144,6 +144,8 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       status,
       saloonId,
       date,
+      paymentStatus,
+      paymentMode,
     } = req.query;
 
     const paginationParams = getPagination(req, 10);
@@ -162,6 +164,14 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
 
     if (status && typeof status === 'string' && status.trim() !== '') {
       where.status = status;
+    }
+
+    if (paymentStatus && typeof paymentStatus === 'string' && paymentStatus.trim() !== '') {
+      where.paymentStatus = paymentStatus;
+    }
+
+    if (paymentMode && typeof paymentMode === 'string' && paymentMode.trim() !== '') {
+      where.paymentMode = paymentMode;
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {
@@ -361,7 +371,7 @@ export const getBookingById = async (req: Request, res: Response): Promise<void>
 export const updateBookingStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus } = req.body;
+    const { status, paymentStatus, paymentMode } = req.body;
 
     const existing = await prisma.booking.findUnique({
       where: { id: String(id) },
@@ -374,6 +384,7 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
     const updateData: any = {};
     if (status) updateData.status = status;
     if (paymentStatus) updateData.paymentStatus = paymentStatus;
+    if (paymentMode) updateData.paymentMode = paymentMode;
 
     const updatedBooking = await prisma.booking.update({
       where: { id: String(id) },
@@ -458,6 +469,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       .optional()
       .isIn(Object.values(PaymentStatus)).withMessage(`Invalid payment status. Allowed: ${Object.values(PaymentStatus).join(', ')}`)
       .run(req);
+    await body('paymentMode')
+      .optional()
+      .isIn(Object.values(PaymentMode)).withMessage(`Invalid payment mode. Allowed: ${Object.values(PaymentMode).join(', ')}`)
+      .run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -471,6 +486,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       items,
       status = BookingStatus.CONFIRMED,
       paymentStatus = PaymentStatus.SUCCESS,
+      paymentMode = PaymentMode.CASH,
       discount = 0,
       couponCode = '',
       membershipUsed = 0,
@@ -657,6 +673,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           saloonId: targetSaloonId,
           status,
           paymentStatus,
+          paymentMode,
           subtotal,
           discount: numericDiscount,
           membershipUsed: actualMembershipUsed,

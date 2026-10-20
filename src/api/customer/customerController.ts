@@ -36,6 +36,8 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
           email: true,
           points: true,
           referralCode: true,
+          defaultSaloonId: true,
+          defaultSaloon: true,
           rewardTransactions: {
             where: {
               status: 'ACTIVE',
@@ -72,6 +74,10 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
         rewardPoints,
         referralPoints,
         referralCode: c.referralCode,
+        defaultSaloonId: c.defaultSaloonId,
+        defaultSaloon: c.defaultSaloon,
+        saloonId: c.defaultSaloonId,
+        saloon: c.defaultSaloon,
         createdAt: c.createdAt,
       };
     });
@@ -131,5 +137,47 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.status(statusCode).json(new AppResponse(error.message || 'Failed to create customer', {}, statusCode));
+  }
+};
+
+/**
+ * PATCH /api/customer/branch
+ * Update logged-in customer's preferred branch / saloon
+ */
+export const updateCustomerBranch = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const customerId = req.user?.id;
+    if (!customerId) {
+      throw new AppError('Authentication required', 401);
+    }
+
+    const targetSaloonId = req.body.defaultSaloonId || req.body.saloonId;
+    if (!targetSaloonId) {
+      throw new AppError('Branch (defaultSaloonId) is required', 400);
+    }
+
+    // Verify saloon exists
+    const saloon = await prisma.saloon.findUnique({
+      where: { id: targetSaloonId },
+    });
+    if (!saloon) {
+      throw new AppError('Selected branch not found', 404);
+    }
+
+    const updatedCustomer = await prisma.customer.update({
+      where: { id: customerId },
+      data: { defaultSaloonId: targetSaloonId },
+      include: { defaultSaloon: true },
+    });
+
+    const { password: _, ...customerData } = updatedCustomer;
+    res.json(new AppResponse('Branch updated successfully', {
+      ...customerData,
+      saloonId: updatedCustomer.defaultSaloonId,
+      saloon: updatedCustomer.defaultSaloon,
+    }, 200));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to update branch', {}, statusCode));
   }
 };

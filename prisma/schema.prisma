@@ -37,17 +37,19 @@ model UserRole {
 }
 
 model Customer {
-  id          String       @id @default(uuid())
-  phone       String?      @unique
-  email       String?      @unique
-  password    String?
-  name        String?
-  points      Int          @default(0)
-  cart        Cart?
-  bookings    Booking[]
-  payments    Payment[]
-  reviews     Review[]
-  invoices    Invoice[]
+  id                 String              @id @default(uuid())
+  phone              String?             @unique
+  email              String?             @unique
+  password           String?
+  name               String?
+  points             Int                 @default(0)
+  defaultSaloonId    String?
+  defaultSaloon      Saloon?             @relation(fields: [defaultSaloonId], references: [id], onDelete: SetNull)
+  cart               Cart?
+  bookings           Booking[]
+  payments           Payment[]
+  reviews            Review[]
+  invoices           Invoice[]
   memberships        Membership[]
   referralCode       String?             @unique
   referredById       String?
@@ -59,6 +61,8 @@ model Customer {
   packages           Package[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
+
+  @@index([defaultSaloonId])
 }
 
 model Saloon {
@@ -76,6 +80,7 @@ model Saloon {
   bookings    Booking[]
   reviews     Review[]
   invoices    Invoice[]
+  customers   Customer[]
 }
 
 enum Role {
@@ -367,6 +372,13 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum PaymentMode {
+  UPI
+  CARD
+  CASH
+  BANK_TRANSFER
+}
+
 model Booking {
   id                     String                  @id @default(uuid())
   bookingNumber          String                  @unique
@@ -376,6 +388,7 @@ model Booking {
   saloon                 Saloon?                 @relation(fields: [saloonId], references: [id], onDelete: SetNull)
   status                 BookingStatus           @default(CONFIRMED)
   paymentStatus          PaymentStatus           @default(SUCCESS)
+  paymentMode            PaymentMode?            @default(CASH)
   subtotal               Float
   discount               Float                   @default(0)
   totalAmount            Float

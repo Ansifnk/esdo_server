@@ -91,9 +91,11 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
     // Find or create customer
     let customer = await prisma.customer.findUnique({
       where: { phone: normalized },
+      include: { defaultSaloon: true },
     });
 
     const referralCodeInput = req.body.referredByCode || req.body.referralCode;
+    const requestedSaloonId = req.body.defaultSaloonId || req.body.saloonId;
 
     if (!customer) {
       const generatedCode = await generateUniqueReferralCode();
@@ -103,7 +105,9 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
           phone: normalized,
           name: name || `Customer ${normalized.slice(-4)}`,
           referralCode: generatedCode,
+          defaultSaloonId: requestedSaloonId || null,
         },
+        include: { defaultSaloon: true },
       });
 
       // Apply referral code if provided
@@ -114,18 +118,31 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
           console.warn('Could not apply referral code during customer verification:', err.message);
         }
       }
-    } else if (!customer.referralCode) {
-      // Ensure existing customer has referral code
-      const generatedCode = await generateUniqueReferralCode();
-      customer = await prisma.customer.update({
-        where: { id: customer.id },
-        data: { referralCode: generatedCode },
-      });
+    } else {
+      const updateData: any = {};
+      if (!customer.referralCode) {
+        updateData.referralCode = await generateUniqueReferralCode();
+      }
+      if (requestedSaloonId && !customer.defaultSaloonId) {
+        updateData.defaultSaloonId = requestedSaloonId;
+      }
+      if (Object.keys(updateData).length > 0) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: updateData,
+          include: { defaultSaloon: true },
+        });
+      }
     }
 
     // Generate Session & JWT Tokens
     const sessionId = crypto.randomUUID();
-    const { password: _, ...customerPayload } = customer;
+    const { password: _, ...customerPayloadRaw } = customer;
+    const customerPayload = {
+      ...customerPayloadRaw,
+      saloonId: customer.defaultSaloonId,
+      saloon: customer.defaultSaloon,
+    };
 
     const accessToken = createAccessToken(
       { id: customer.id, email: customer.email || '', name: customer.name || '' },

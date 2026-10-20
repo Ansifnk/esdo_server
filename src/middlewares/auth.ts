@@ -30,12 +30,15 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     if (decoded.role === Role.CUSTOMER) {
       const customer = await prisma.customer.findUnique({
         where: { id: decoded.id },
+        include: { defaultSaloon: true },
       });
       if (!customer) {
         return next(new AppError('User not found', 401));
       }
       req.user = {
         ...customer,
+        saloonId: customer.defaultSaloonId,
+        saloon: customer.defaultSaloon,
         roles: [{ role: Role.CUSTOMER }],
       } as any;
     } else {
