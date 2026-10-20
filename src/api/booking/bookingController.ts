@@ -8,6 +8,7 @@ import { BookingStatus, PaymentStatus, PaymentMode } from '../../generated/prism
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
+import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey } from '../staff/controller';
 
 /**
  * GET /api/bookings (Customer)
@@ -619,13 +620,37 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         formattedDate = parsedDate.toISOString();
       }
 
+      const rawSlot = (item.timeSlot && typeof item.timeSlot === 'string') ? item.timeSlot.trim() : '';
+
+      if (cleanStaffId && rawSlot) {
+        // Intra-booking conflict check
+        const conflict = processedItems.find(
+          (p) =>
+            p.staffId === cleanStaffId &&
+            extractDateMatchKey(p.date) === extractDateMatchKey(formattedDate) &&
+            normalizeTimeSlot(p.timeSlot) === normalizeTimeSlot(rawSlot)
+        );
+        if (conflict) {
+          throw new AppError(
+            `Stylist is already assigned to another item at "${rawSlot}" on this date. Please choose a different stylist or time slot.`,
+            400
+          );
+        }
+
+        // Validate against stylist schedule and existing bookings
+        const slotAvailability = await isStaffSlotAvailable(cleanStaffId, formattedDate, rawSlot);
+        if (!slotAvailability.available) {
+          throw new AppError(slotAvailability.reason || `Time slot "${rawSlot}" is not available`, 400);
+        }
+      }
+
       subtotal += price;
       processedItems.push({
         serviceId: cleanServiceId,
         packageId: cleanPackageId,
         staffId: cleanStaffId,
         date: formattedDate,
-        timeSlot: (item.timeSlot && typeof item.timeSlot === 'string') ? item.timeSlot.trim() : '',
+        timeSlot: rawSlot,
         price,
       });
     }
