@@ -18,21 +18,25 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
     }
 
     const { name, image, gender }: { name: string; image?: string; gender?: ServiceGender } = req.body;
+    const targetGender = gender ?? ServiceGender.UNI;
 
     const isExist = await prisma.category.findFirst({
-      where: { name: name.trim() },
+      where: {
+        name: name.trim(),
+        gender: targetGender,
+      },
     });
 
     if (isExist) {
-      res.json(new AppResponse('Category already exists', {}, 400));
+      res.json(new AppResponse('Category with this name and gender already exists', {}, 400));
       return;
     }
 
     const category = await prisma.category.create({
       data: {
-        name,
+        name: name.trim(),
         image: image ?? '',
-        gender: gender ?? ServiceGender.UNI,
+        gender: targetGender,
       },
     });
 
@@ -132,12 +136,19 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    if (name && name.trim() !== existingCategory.name) {
+    const targetName = name !== undefined ? name.trim() : existingCategory.name;
+    const targetGender = gender !== undefined ? gender : existingCategory.gender;
+
+    if (name !== undefined || gender !== undefined) {
       const isExist = await prisma.category.findFirst({
-        where: { name: name.trim() },
+        where: {
+          id: { not: id },
+          name: targetName,
+          gender: targetGender,
+        },
       });
       if (isExist) {
-        res.json(new AppResponse('Category with this name already exists', {}, 400));
+        res.json(new AppResponse('Category with this name and gender already exists', {}, 400));
         return;
       }
     }
@@ -145,9 +156,9 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     const updatedCategory = await prisma.category.update({
       where: { id },
       data: {
-        name: name !== undefined ? name : existingCategory.name,
+        name: targetName,
         image: image !== undefined ? image : existingCategory.image,
-        gender: gender !== undefined ? gender : existingCategory.gender,
+        gender: targetGender,
       },
     });
 

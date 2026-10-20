@@ -99,6 +99,8 @@ model Category {
   updatedAt     DateTime      @updatedAt
   staffs        Staff[]
   services      Service[]
+
+  @@unique([name, gender])
 }
 
 model SubCategory {
@@ -111,6 +113,8 @@ model SubCategory {
   updatedAt  DateTime  @updatedAt
   staffs     Staff[]
   services   Service[]
+
+  @@unique([name, categoryId])
 }
 
 model File {

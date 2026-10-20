@@ -40,7 +40,7 @@ export const createSubCategory = async (req: Request, res: Response): Promise<vo
 
     const subCategory = await prisma.subCategory.create({
       data: {
-        name,
+        name: name.trim(),
         image: image ?? '',
         categoryId,
       },
@@ -174,7 +174,7 @@ export const updateSubCategory = async (req: Request, res: Response): Promise<vo
     const updatedSubCategory = await prisma.subCategory.update({
       where: { id },
       data: {
-        name: name !== undefined ? name : existingSubCategory.name,
+        name: targetName,
         image: image !== undefined ? image : existingSubCategory.image,
         categoryId: targetCategoryId,
       },
