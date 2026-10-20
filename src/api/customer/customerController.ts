@@ -132,6 +132,14 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       }
     }
 
+    const targetSaloonId = req.body.defaultSaloonId || req.body.saloonId || null;
+    if (targetSaloonId) {
+      const saloon = await prisma.saloon.findUnique({ where: { id: targetSaloonId } });
+      if (!saloon) {
+        throw new AppError('Selected branch / saloon not found', 404);
+      }
+    }
+
     const newCustomer = await prisma.customer.create({
       data: {
         name: name || 'Walk-in Customer',
@@ -139,23 +147,218 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
         email: cleanEmail,
         birthDate: parsedBirthDate,
         address: cleanAddress,
+        defaultSaloonId: targetSaloonId,
       },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        email: true,
-        birthDate: true,
-        address: true,
-        points: true,
-        createdAt: true,
+      include: {
+        defaultSaloon: true,
       },
     });
 
-    res.status(201).json(new AppResponse('Customer created successfully', newCustomer, 201));
+    const { password: _, ...customerData } = newCustomer;
+
+    res.status(201).json(new AppResponse('Customer created successfully', {
+      ...customerData,
+      saloonId: newCustomer.defaultSaloonId,
+      saloon: newCustomer.defaultSaloon,
+    }, 201));
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.status(statusCode).json(new AppResponse(error.message || 'Failed to create customer', {}, statusCode));
+  }
+};
+
+/**
+ * GET /api/customer/:id
+ * Retrieve customer details by ID (Admin)
+ */
+export const getCustomerById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const c = await prisma.customer.findUnique({
+      where: { id: String(id) },
+      include: {
+        defaultSaloon: true,
+        _count: {
+          select: {
+            bookings: true,
+            memberships: true,
+            reviews: true,
+          },
+        },
+        rewardTransactions: {
+          where: {
+            status: 'ACTIVE',
+            remainingCoins: { gt: 0 },
+          },
+          select: {
+            type: true,
+            remainingCoins: true,
+          },
+        },
+      },
+    });
+
+    if (!c) {
+      throw new AppError('Customer not found', 404);
+    }
+
+    let rewardPoints = 0;
+    let referralPoints = 0;
+    for (const tx of c.rewardTransactions || []) {
+      if (tx.type === 'SPEND_EARN') rewardPoints += tx.remainingCoins;
+      else if (tx.type === 'REFERRAL_EARN') referralPoints += tx.remainingCoins;
+    }
+    const totalPoints = c.points || 0;
+    if (rewardPoints + referralPoints < totalPoints) {
+      rewardPoints += (totalPoints - (rewardPoints + referralPoints));
+    }
+
+    const { password: _, ...cleanC } = c;
+
+    const customerData = {
+      ...cleanC,
+      points: totalPoints,
+      rewardPoints,
+      referralPoints,
+      saloonId: c.defaultSaloonId,
+      saloon: c.defaultSaloon,
+      address: c.address || '',
+    };
+
+    res.json(new AppResponse('Customer retrieved successfully', customerData, 200));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to retrieve customer', {}, statusCode));
+  }
+};
+
+/**
+ * PUT /api/customer/:id or PATCH /api/customer/:id
+ * Admin: Update customer details
+ */
+export const updateCustomer = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const customer = await prisma.customer.findUnique({
+      where: { id: String(id) },
+    });
+
+    if (!customer) {
+      throw new AppError('Customer not found', 404);
+    }
+
+    const { name, phone, email, birthDate, address, defaultSaloonId, saloonId } = req.body;
+    const updateData: any = {};
+
+    if (name !== undefined) {
+      const cleanName = typeof name === 'string' ? name.trim() : '';
+      if (!cleanName) {
+        throw new AppError('Customer name cannot be empty', 400);
+      }
+      updateData.name = cleanName;
+    }
+
+    if (phone !== undefined) {
+      const cleanPhone = phone && typeof phone === 'string' && phone.trim() !== '' ? phone.trim() : null;
+      if (cleanPhone && cleanPhone !== customer.phone) {
+        const existing = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+        if (existing && existing.id !== customer.id) {
+          throw new AppError('A customer with this phone number already exists.', 400);
+        }
+      }
+      updateData.phone = cleanPhone;
+    }
+
+    if (email !== undefined) {
+      const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
+      if (cleanEmail) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          throw new AppError('Please enter a valid email address', 400);
+        }
+        if (cleanEmail !== customer.email) {
+          const existing = await prisma.customer.findUnique({ where: { email: cleanEmail } });
+          if (existing && existing.id !== customer.id) {
+            throw new AppError('A customer with this email already exists.', 400);
+          }
+        }
+      }
+      updateData.email = cleanEmail;
+    }
+
+    if (birthDate !== undefined) {
+      if (!birthDate) {
+        updateData.birthDate = null;
+      } else {
+        const d = new Date(birthDate);
+        if (isNaN(d.getTime())) {
+          throw new AppError('Please enter a valid birth date', 400);
+        }
+        if (d >= new Date()) {
+          throw new AppError('Birth date must be in the past', 400);
+        }
+        updateData.birthDate = d;
+      }
+    }
+
+    if (address !== undefined) {
+      updateData.address = typeof address === 'string' ? address.trim() || null : null;
+    }
+
+    const targetSaloonId = defaultSaloonId !== undefined ? defaultSaloonId : saloonId;
+    if (targetSaloonId !== undefined) {
+      if (targetSaloonId && targetSaloonId.trim() !== '') {
+        const saloon = await prisma.saloon.findUnique({ where: { id: targetSaloonId } });
+        if (!saloon) {
+          throw new AppError('Selected branch / saloon not found', 404);
+        }
+        updateData.defaultSaloonId = targetSaloonId;
+      } else {
+        updateData.defaultSaloonId = null;
+      }
+    }
+
+    const updated = await prisma.customer.update({
+      where: { id: customer.id },
+      data: updateData,
+      include: { defaultSaloon: true },
+    });
+
+    const { password: _, ...customerData } = updated;
+    res.json(new AppResponse('Customer updated successfully', {
+      ...customerData,
+      saloonId: updated.defaultSaloonId,
+      saloon: updated.defaultSaloon,
+      address: updated.address || '',
+    }, 200));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to update customer', {}, statusCode));
+  }
+};
+
+/**
+ * DELETE /api/customer/:id
+ * Admin: Delete customer
+ */
+export const deleteCustomer = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const customer = await prisma.customer.findUnique({
+      where: { id: String(id) },
+    });
+
+    if (!customer) {
+      throw new AppError('Customer not found', 404);
+    }
+
+    await prisma.customer.delete({
+      where: { id: String(id) },
+    });
+
+    res.json(new AppResponse('Customer deleted successfully', {}, 200));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to delete customer', {}, statusCode));
   }
 };
 
