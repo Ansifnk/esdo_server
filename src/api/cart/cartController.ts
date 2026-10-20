@@ -42,17 +42,33 @@ async function calculateCartSummary(cart: any, customerId?: string) {
         couponCode: { equals: trimmedCode, mode: 'insensitive' },
         isActive: true,
       },
+      include: {
+        customers: {
+          select: { id: true },
+        },
+      },
     });
 
     if (offer) {
-      couponMinCartValue = offer.minCartValue || 0;
-      if (offer.minCartValue && offer.minCartValue > 0 && discountedSubtotal < offer.minCartValue) {
+      const activeCustomerId = customerId || cart.customerId || '';
+      const isCustomerAllowed =
+        !offer.customers ||
+        offer.customers.length === 0 ||
+        (Boolean(activeCustomerId) && offer.customers.some((c) => c.id === activeCustomerId));
+
+      if (!isCustomerAllowed) {
         discount = 0;
-        couponError = `Minimum cart value of ₹${offer.minCartValue} is required to apply coupon ${offer.couponCode}.`;
-      } else if (offer.discountType === 'PERCENTAGE') {
-        discount = (discountedSubtotal * offer.discountValue) / 100;
-      } else if (offer.discountType === 'FIXED') {
-        discount = offer.discountValue;
+        couponError = 'This coupon code is not valid for your account.';
+      } else {
+        couponMinCartValue = offer.minCartValue || 0;
+        if (offer.minCartValue && offer.minCartValue > 0 && discountedSubtotal < offer.minCartValue) {
+          discount = 0;
+          couponError = `Minimum cart value of ₹${offer.minCartValue} is required to apply coupon ${offer.couponCode}.`;
+        } else if (offer.discountType === 'PERCENTAGE') {
+          discount = (discountedSubtotal * offer.discountValue) / 100;
+        } else if (offer.discountType === 'FIXED') {
+          discount = offer.discountValue;
+        }
       }
     } else {
       // Check if it's a valid friend referral code for first-time customer
@@ -430,6 +446,11 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
       const trimmed = couponCode.trim();
       const offer = await prisma.offer.findFirst({
         where: { couponCode: { equals: trimmed, mode: 'insensitive' }, isActive: true },
+        include: {
+          customers: {
+            select: { id: true },
+          },
+        },
       });
 
       if (!offer) {
@@ -460,6 +481,14 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
           throw new AppError(refErr.message || 'Invalid coupon or referral code', 400);
         }
       } else {
+        // Check customer restriction
+        if (offer.customers && offer.customers.length > 0) {
+          const isCustomerAllowed = offer.customers.some((c) => c.id === customerId);
+          if (!isCustomerAllowed) {
+            throw new AppError('This coupon is not valid for your account', 400);
+          }
+        }
+
         // Check date validity
         const now = new Date();
         if (offer.startDate && new Date(offer.startDate) > now) {

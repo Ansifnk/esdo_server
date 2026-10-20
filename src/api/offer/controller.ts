@@ -20,6 +20,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
     await body('endDate').optional().isISO8601().withMessage('Invalid end date').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array of UUIDs').run(req);
     await body('packageIds').optional().isArray().withMessage('packageIds must be an array of UUIDs').run(req);
+    await body('customerIds').optional().isArray().withMessage('customerIds must be an array of UUIDs').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -45,6 +46,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       endDate,
       serviceIds = [],
       packageIds = [],
+      customerIds = [],
     } = req.body;
 
     let saloonId = req.body.saloonId;
@@ -144,6 +146,18 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       }
     }
 
+    // Verify customers if target customers are selected for coupon offers
+    if (type === OfferType.COUPON && customerIds.length > 0) {
+      const uniqueCustomerIds = [...new Set(customerIds as string[])];
+      const count = await prisma.customer.count({
+        where: { id: { in: uniqueCustomerIds } },
+      });
+      if (count !== uniqueCustomerIds.length) {
+        res.json(new AppResponse('One or more selected customers are invalid', {}, 400));
+        return;
+      }
+    }
+
     // Create the offer in the database
     const offer = await prisma.offer.create({
       data: {
@@ -169,11 +183,24 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
         packages: {
           connect: packageIds.map((id: string) => ({ id })),
         },
+        customers: {
+          connect: (type === OfferType.COUPON && customerIds.length > 0)
+            ? customerIds.map((id: string) => ({ id }))
+            : [],
+        },
       },
       include: {
         saloon: true,
         services: true,
         packages: true,
+        customers: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
+        },
       },
     });
 
@@ -257,6 +284,14 @@ export const getOffers = async (req: Request, res: Response): Promise<void> => {
           saloon: true,
           services: true,
           packages: true,
+          customers: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true,
+            },
+          },
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -290,6 +325,14 @@ export const getOfferById = async (req: Request, res: Response): Promise<void> =
         saloon: true,
         services: true,
         packages: true,
+        customers: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
+        },
       },
     });
 
@@ -331,6 +374,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
     await body('endDate').optional().isISO8601().withMessage('Invalid end date').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array of UUIDs').run(req);
     await body('packageIds').optional().isArray().withMessage('packageIds must be an array of UUIDs').run(req);
+    await body('customerIds').optional().isArray().withMessage('customerIds must be an array of UUIDs').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -388,6 +432,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
       endDate,
       serviceIds,
       packageIds,
+      customerIds,
     } = req.body;
 
     let saloonId = req.body.saloonId;
@@ -479,6 +524,18 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
       }
     }
 
+    // Verify customers if they are being updated for coupon offers
+    if (finalType === OfferType.COUPON && customerIds !== undefined && customerIds.length > 0) {
+      const uniqueCustomerIds = [...new Set(customerIds as string[])];
+      const count = await prisma.customer.count({
+        where: { id: { in: uniqueCustomerIds } },
+      });
+      if (count !== uniqueCustomerIds.length) {
+        res.json(new AppResponse('One or more selected customers are invalid', {}, 400));
+        return;
+      }
+    }
+
     // Update fields
     const updatedOffer = await prisma.offer.update({
       where: { id },
@@ -505,11 +562,24 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         packages: packageIds !== undefined ? {
           set: packageIds.map((pid: string) => ({ id: pid })),
         } : undefined,
+        customers: customerIds !== undefined ? {
+          set: (finalType === OfferType.COUPON && Array.isArray(customerIds))
+            ? customerIds.map((cid: string) => ({ id: cid }))
+            : [],
+        } : undefined,
       },
       include: {
         saloon: true,
         services: true,
         packages: true,
+        customers: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
+        },
       },
     });
 

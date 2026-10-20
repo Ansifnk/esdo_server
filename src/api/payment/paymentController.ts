@@ -46,14 +46,26 @@ async function getCartTotalAndDiscount(cart: any) {
         couponCode: { equals: trimmed, mode: 'insensitive' },
         isActive: true,
       },
+      include: {
+        customers: {
+          select: { id: true },
+        },
+      },
     });
 
     if (offer) {
+      const isCustomerAllowed =
+        !offer.customers ||
+        offer.customers.length === 0 ||
+        (Boolean(cart.customerId) && offer.customers.some((c) => c.id === cart.customerId));
+
       const now = new Date();
       const isDateValid = (!offer.startDate || new Date(offer.startDate) <= now) &&
                           (!offer.endDate || new Date(offer.endDate) >= now);
 
-      if (!isDateValid) {
+      if (!isCustomerAllowed) {
+        discount = 0;
+      } else if (!isDateValid) {
         discount = 0;
       } else if (offer.minCartValue && offer.minCartValue > 0 && subtotal < offer.minCartValue) {
         discount = 0;
