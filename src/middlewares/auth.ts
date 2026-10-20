@@ -35,10 +35,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       if (!customer) {
         return next(new AppError('User not found', 401));
       }
+
       req.user = {
         ...customer,
         saloonId: customer.defaultSaloonId,
         saloon: customer.defaultSaloon,
+        address: customer.address || '',
         roles: [{ role: Role.CUSTOMER }],
       } as any;
     } else {

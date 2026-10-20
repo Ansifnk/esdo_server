@@ -4,7 +4,12 @@ import {
   customerVerifyOtp,
   customerSignupSendOtp,
 } from '../auth/customerController';
-import { getCustomers, createCustomer, updateCustomerBranch } from './customerController';
+import {
+  getCustomers,
+  createCustomer,
+  updateCustomerBranch,
+  updateCustomerProfile,
+} from './customerController';
 import { authenticate } from '../../middlewares/auth';
 
 const router = Router();
@@ -17,6 +22,10 @@ router.post('/signup-send-otp', customerSignupSendOtp);
 // Customer management / search routes
 router.get('/', authenticate, getCustomers);
 router.post('/', authenticate, createCustomer);
+
+// Customer profile management
+router.patch('/profile', authenticate, updateCustomerProfile);
+router.put('/profile', authenticate, updateCustomerProfile);
 
 // Customer branch / saloon preference
 router.patch('/branch', authenticate, updateCustomerBranch);

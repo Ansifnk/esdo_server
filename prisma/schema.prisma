@@ -40,6 +40,8 @@ model Customer {
   id                 String              @id @default(uuid())
   phone              String?             @unique
   email              String?             @unique
+  birthDate          DateTime?
+  address            String?
   password           String?
   name               String?
   points             Int                 @default(0)

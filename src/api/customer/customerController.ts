@@ -34,6 +34,8 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
           name: true,
           phone: true,
           email: true,
+          birthDate: true,
+          address: true,
           points: true,
           referralCode: true,
           defaultSaloonId: true,
@@ -65,11 +67,14 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
       if (rewardPoints + referralPoints < totalPoints) {
         rewardPoints += (totalPoints - (rewardPoints + referralPoints));
       }
+
       return {
         id: c.id,
         name: c.name,
         phone: c.phone,
         email: c.email,
+        birthDate: c.birthDate,
+        address: c.address || '',
         points: totalPoints,
         rewardPoints,
         referralPoints,
@@ -97,9 +102,19 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
  */
 export const createCustomer = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, phone, email } = req.body;
+    const { name, phone, email, birthDate, address } = req.body;
 
-    if (!name && !phone && !email) {
+    const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
+    let parsedBirthDate: Date | null = null;
+    if (birthDate) {
+      const d = new Date(birthDate);
+      if (!isNaN(d.getTime())) {
+        parsedBirthDate = d;
+      }
+    }
+    const cleanAddress = address && typeof address === 'string' && address.trim() !== '' ? address.trim() : null;
+
+    if (!name && !phone && !cleanEmail) {
       throw new AppError('Please provide at least a customer name, phone number, or email.', 400);
     }
 
@@ -110,8 +125,8 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       }
     }
 
-    if (email) {
-      const existing = await prisma.customer.findUnique({ where: { email } });
+    if (cleanEmail) {
+      const existing = await prisma.customer.findUnique({ where: { email: cleanEmail } });
       if (existing) {
         throw new AppError('A customer with this email address already exists.', 400);
       }
@@ -121,13 +136,17 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       data: {
         name: name || 'Walk-in Customer',
         phone: phone || null,
-        email: email || null,
+        email: cleanEmail,
+        birthDate: parsedBirthDate,
+        address: cleanAddress,
       },
       select: {
         id: true,
         name: true,
         phone: true,
         email: true,
+        birthDate: true,
+        address: true,
         points: true,
         createdAt: true,
       },
@@ -179,5 +198,94 @@ export const updateCustomerBranch = async (req: Request, res: Response): Promise
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.status(statusCode).json(new AppResponse(error.message || 'Failed to update branch', {}, statusCode));
+  }
+};
+
+/**
+ * PATCH /api/customer/profile
+ * Update logged-in customer's profile (name, email, birthDate, address)
+ * Phone number cannot be edited here as per requirement.
+ */
+export const updateCustomerProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const customerId = req.user?.id;
+    if (!customerId) {
+      throw new AppError('Authentication required', 401);
+    }
+
+    const { name, email, birthDate, address } = req.body;
+
+    // Check if customer exists
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new AppError('Customer not found', 404);
+    }
+
+    const updateData: any = {};
+
+    if (name !== undefined) {
+      const cleanName = typeof name === 'string' ? name.trim() : '';
+      if (!cleanName) {
+        throw new AppError('Name cannot be empty', 400);
+      }
+      updateData.name = cleanName;
+    }
+
+    if (email !== undefined) {
+      const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
+      if (cleanEmail) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          throw new AppError('Please enter a valid email address', 400);
+        }
+        if (cleanEmail !== customer.email) {
+          const existing = await prisma.customer.findUnique({
+            where: { email: cleanEmail },
+          });
+          if (existing && existing.id !== customerId) {
+            throw new AppError('This email is already in use by another account', 400);
+          }
+        }
+      }
+      updateData.email = cleanEmail;
+    }
+
+    if (birthDate !== undefined) {
+      if (!birthDate) {
+        updateData.birthDate = null;
+      } else {
+        const d = new Date(birthDate);
+        if (isNaN(d.getTime())) {
+          throw new AppError('Please enter a valid birth date', 400);
+        }
+        if (d >= new Date()) {
+          throw new AppError('Birth date must be in the past', 400);
+        }
+        updateData.birthDate = d;
+      }
+    }
+
+    if (address !== undefined) {
+      updateData.address = typeof address === 'string' ? address.trim() || null : null;
+    }
+
+    const updatedCustomer = await prisma.customer.update({
+      where: { id: customerId },
+      data: updateData,
+      include: { defaultSaloon: true },
+    });
+
+    const { password: _, ...customerData } = updatedCustomer;
+    res.json(new AppResponse('Profile updated successfully', {
+      ...customerData,
+      saloonId: updatedCustomer.defaultSaloonId,
+      saloon: updatedCustomer.defaultSaloon,
+      address: updatedCustomer.address || '',
+    }, 200));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to update profile', {}, statusCode));
   }
 };

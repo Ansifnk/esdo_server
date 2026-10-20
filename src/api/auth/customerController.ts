@@ -74,7 +74,7 @@ export const customerLoginSendOtp = async (req: Request, res: Response): Promise
  */
 export const customerVerifyOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, otp, name } = req.body;
+    const { phone, otp, name, email, address, birthDate } = req.body;
 
     if (!phone || !otp) {
       throw new AppError('Phone number and OTP code are required', 400);
@@ -97,6 +97,16 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
     const referralCodeInput = req.body.referredByCode || req.body.referralCode;
     const requestedSaloonId = req.body.defaultSaloonId || req.body.saloonId;
 
+    const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
+    let parsedBirthDate: Date | null = null;
+    if (birthDate) {
+      const d = new Date(birthDate);
+      if (!isNaN(d.getTime())) {
+        parsedBirthDate = d;
+      }
+    }
+    const cleanAddress = address && typeof address === 'string' && address.trim() !== '' ? address.trim() : null;
+
     if (!customer) {
       const generatedCode = await generateUniqueReferralCode();
       // Auto-create customer record on verification
@@ -104,6 +114,9 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
         data: {
           phone: normalized,
           name: name || `Customer ${normalized.slice(-4)}`,
+          email: cleanEmail,
+          birthDate: parsedBirthDate,
+          address: cleanAddress,
           referralCode: generatedCode,
           defaultSaloonId: requestedSaloonId || null,
         },
@@ -126,6 +139,18 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
       if (requestedSaloonId && !customer.defaultSaloonId) {
         updateData.defaultSaloonId = requestedSaloonId;
       }
+      if (name && (!customer.name || customer.name.startsWith('Customer '))) {
+        updateData.name = name;
+      }
+      if (cleanEmail && !customer.email) {
+        updateData.email = cleanEmail;
+      }
+      if (parsedBirthDate && !customer.birthDate) {
+        updateData.birthDate = parsedBirthDate;
+      }
+      if (cleanAddress && !customer.address) {
+        updateData.address = cleanAddress;
+      }
       if (Object.keys(updateData).length > 0) {
         customer = await prisma.customer.update({
           where: { id: customer.id },
@@ -135,13 +160,19 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
       }
     }
 
+    if (!customer) {
+      throw new AppError('Failed to process customer account', 500);
+    }
+
     // Generate Session & JWT Tokens
     const sessionId = crypto.randomUUID();
-    const { password: _, ...customerPayloadRaw } = customer;
+    const { password: _, ...customerPayloadRaw } = customer as any;
+
     const customerPayload = {
       ...customerPayloadRaw,
       saloonId: customer.defaultSaloonId,
       saloon: customer.defaultSaloon,
+      address: customer.address || '',
     };
 
     const accessToken = createAccessToken(
@@ -189,6 +220,17 @@ export const customerSignupSendOtp = async (req: Request, res: Response): Promis
       throw new AppError('This phone number is already registered. Please log in.', 400);
     }
 
+    // If email provided, check if already in use
+    const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
+    if (cleanEmail) {
+      const existingEmail = await prisma.customer.findUnique({
+        where: { email: cleanEmail },
+      });
+      if (existingEmail) {
+        throw new AppError('This email is already registered. Please use another email or log in.', 400);
+      }
+    }
+
     // Check rate limit
     if (await isOtpRateLimited(normalized, 30)) {
       throw new AppError('Please wait 30 seconds before requesting another OTP', 429);
@@ -205,7 +247,7 @@ export const customerSignupSendOtp = async (req: Request, res: Response): Promis
       new AppResponse('Signup OTP sent successfully', {
         phone: normalized,
         name,
-        email,
+        email: cleanEmail,
         ...(process.env.NODE_ENV === 'development' ? { devOtp: otp } : {}),
       })
     );
