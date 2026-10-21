@@ -12,6 +12,8 @@ import {
   deleteCustomer,
   updateCustomerBranch,
   updateCustomerProfile,
+  validateImportCustomers,
+  bulkImportCustomers,
 } from './customerController';
 import { authenticate } from '../../middlewares/auth';
 
@@ -29,6 +31,10 @@ router.put('/profile', authenticate, updateCustomerProfile);
 // Customer branch / saloon preference
 router.patch('/branch', authenticate, updateCustomerBranch);
 router.put('/branch', authenticate, updateCustomerBranch);
+
+// Bulk import & pre-import validation (Admin)
+router.post('/validate-import', authenticate, validateImportCustomers);
+router.post('/bulk-import', authenticate, bulkImportCustomers);
 
 // Customer management / search / CRUD routes (Admin)
 router.get('/', authenticate, getCustomers);

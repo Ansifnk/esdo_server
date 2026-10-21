@@ -492,3 +492,196 @@ export const updateCustomerProfile = async (req: Request, res: Response): Promis
     res.status(statusCode).json(new AppResponse(error.message || 'Failed to update profile', {}, statusCode));
   }
 };
+
+/**
+ * POST /api/customer/validate-import
+ * Validate a batch of customer candidates before importing to DB
+ * Checks for existing phone numbers and emails in the database
+ */
+export const validateImportCustomers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { phones = [], emails = [] } = req.body;
+
+    const cleanPhones = Array.isArray(phones)
+      ? phones.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim())
+      : [];
+    const cleanEmails = Array.isArray(emails)
+      ? emails.filter((e: any) => typeof e === 'string' && e.trim()).map((e: string) => e.trim().toLowerCase())
+      : [];
+
+    const [existingPhones, existingEmails] = await Promise.all([
+      cleanPhones.length > 0
+        ? prisma.customer.findMany({
+            where: { phone: { in: cleanPhones } },
+            select: { phone: true, name: true, id: true },
+          })
+        : [],
+      cleanEmails.length > 0
+        ? prisma.customer.findMany({
+            where: { email: { in: cleanEmails } },
+            select: { email: true, name: true, id: true },
+          })
+        : [],
+    ]);
+
+    res.json(
+      new AppResponse('Validation completed', {
+        existingPhones: existingPhones.map((p) => p.phone).filter(Boolean),
+        existingEmails: existingEmails.map((e) => e.email).filter(Boolean),
+        phoneMatches: existingPhones,
+        emailMatches: existingEmails,
+      }, 200)
+    );
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to validate customers', {}, statusCode));
+  }
+};
+
+/**
+ * POST /api/customer/bulk-import
+ * Bulk import customers from parsed spreadsheet (Admin)
+ */
+export const bulkImportCustomers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { customers = [] } = req.body;
+
+    if (!Array.isArray(customers) || customers.length === 0) {
+      throw new AppError('No customer records provided for import.', 400);
+    }
+
+    // Collect all phones and emails to check against database
+    const allPhones: string[] = [];
+    const allEmails: string[] = [];
+    for (const c of customers) {
+      if (c.phone && typeof c.phone === 'string' && c.phone.trim()) {
+        allPhones.push(c.phone.trim());
+      }
+      if (c.email && typeof c.email === 'string' && c.email.trim()) {
+        allEmails.push(c.email.trim().toLowerCase());
+      }
+    }
+
+    const [existingPhoneRecords, existingEmailRecords] = await Promise.all([
+      allPhones.length > 0
+        ? prisma.customer.findMany({
+            where: { phone: { in: allPhones } },
+            select: { phone: true },
+          })
+        : [],
+      allEmails.length > 0
+        ? prisma.customer.findMany({
+            where: { email: { in: allEmails } },
+            select: { email: true },
+          })
+        : [],
+    ]);
+
+    const existingPhoneSet = new Set(existingPhoneRecords.map((r) => r.phone).filter(Boolean));
+    const existingEmailSet = new Set(existingEmailRecords.map((r) => r.email).filter(Boolean));
+
+    const seenPhonesInBatch = new Set<string>();
+    const seenEmailsInBatch = new Set<string>();
+
+    const validInserts: any[] = [];
+    const skippedRows: Array<{ rowNumber: number; reason: string; customer: any }> = [];
+
+    customers.forEach((c: any, index: number) => {
+      const rowNumber = index + 1;
+      const rawName = c.name && typeof c.name === 'string' ? c.name.trim() : '';
+      const rawPhone = c.phone ? String(c.phone).trim() : null;
+      const rawEmail = c.email && typeof c.email === 'string' && c.email.trim() ? c.email.trim().toLowerCase() : null;
+
+      // Must have at least name, phone, or email
+      if (!rawName && !rawPhone && !rawEmail) {
+        skippedRows.push({
+          rowNumber,
+          reason: 'Missing name, phone, and email. Row is completely empty.',
+          customer: c,
+        });
+        return;
+      }
+
+      // Check phone duplication in DB
+      if (rawPhone && existingPhoneSet.has(rawPhone)) {
+        skippedRows.push({
+          rowNumber,
+          reason: `Phone number '${rawPhone}' already exists in database.`,
+          customer: c,
+        });
+        return;
+      }
+
+      // Check phone duplication within batch
+      if (rawPhone && seenPhonesInBatch.has(rawPhone)) {
+        skippedRows.push({
+          rowNumber,
+          reason: `Duplicate phone number '${rawPhone}' within the uploaded file.`,
+          customer: c,
+        });
+        return;
+      }
+
+      // Check email duplication in DB
+      if (rawEmail && existingEmailSet.has(rawEmail)) {
+        skippedRows.push({
+          rowNumber,
+          reason: `Email address '${rawEmail}' already exists in database.`,
+          customer: c,
+        });
+        return;
+      }
+
+      // Check email duplication within batch
+      if (rawEmail && seenEmailsInBatch.has(rawEmail)) {
+        skippedRows.push({
+          rowNumber,
+          reason: `Duplicate email '${rawEmail}' within the uploaded file.`,
+          customer: c,
+        });
+        return;
+      }
+
+      // Parse birth date
+      let parsedBirthDate: Date | null = null;
+      if (c.birthDate) {
+        const d = new Date(c.birthDate);
+        if (!isNaN(d.getTime())) {
+          parsedBirthDate = d;
+        }
+      }
+
+      // Track as seen
+      if (rawPhone) seenPhonesInBatch.add(rawPhone);
+      if (rawEmail) seenEmailsInBatch.add(rawEmail);
+
+      validInserts.push({
+        name: rawName || 'Walk-in Customer',
+        phone: rawPhone,
+        email: rawEmail,
+        birthDate: parsedBirthDate,
+        address: c.address && typeof c.address === 'string' ? c.address.trim() || null : null,
+      });
+    });
+
+    if (validInserts.length > 0) {
+      await prisma.customer.createMany({
+        data: validInserts,
+        skipDuplicates: true,
+      });
+    }
+
+    res.status(201).json(
+      new AppResponse('Bulk import completed', {
+        totalReceived: customers.length,
+        importedCount: validInserts.length,
+        skippedCount: skippedRows.length,
+        skipped: skippedRows,
+      }, 201)
+    );
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.status(statusCode).json(new AppResponse(error.message || 'Failed to bulk import customers', {}, statusCode));
+  }
+};
+
