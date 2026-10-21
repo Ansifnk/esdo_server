@@ -235,6 +235,7 @@ model Package {
   description   String
   price         Float
   discountPrice Float         @default(0)
+  gender        ServiceGender @default(UNI)
   primaryImage  String        @default("")
   images        String[]      @default([])
   saloonId      String

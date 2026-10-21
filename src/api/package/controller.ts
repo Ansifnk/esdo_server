@@ -3,7 +3,7 @@ import { body, param, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { Role } from '../../generated/prisma/enums';
+import { Role, ServiceGender } from '../../generated/prisma/enums';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 
 export const getPackageSettings = async (_req: Request, res: Response): Promise<void> => {
@@ -71,7 +71,7 @@ export const createCustomPackage = async (req: Request, res: Response): Promise<
       return;
     }
 
-    const { name, serviceIds, saloonId } = req.body;
+    const { name, serviceIds, saloonId, gender = ServiceGender.UNI } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       res.json(new AppResponse('Package name is required', {}, 400));
       return;
@@ -114,6 +114,8 @@ export const createCustomPackage = async (req: Request, res: Response): Promise<
     const description = `Custom package created by you with ${services.length} services: ${serviceNames}`;
     const primaryImage = services.find((s) => s.primaryImage)?.primaryImage || '';
 
+    const effectiveGender = Object.values(ServiceGender).includes(gender) ? (gender as ServiceGender) : ServiceGender.UNI;
+
     const customPkg = await prisma.package.create({
       data: {
         name: name.trim(),
@@ -121,6 +123,7 @@ export const createCustomPackage = async (req: Request, res: Response): Promise<
         description,
         price: totalPrice,
         discountPrice,
+        gender: effectiveGender,
         primaryImage,
         images: services.map((s) => s.primaryImage).filter(Boolean),
         saloonId,
@@ -150,6 +153,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
     await body('description').trim().notEmpty().withMessage('Description is required').run(req);
     await body('price').isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').optional().isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
     await body('saloonId').isUUID().withMessage('Invalid saloon ID format').run(req);
     await body('primaryImage').optional().isString().withMessage('Primary image must be a string').run(req);
     await body('images').optional().isArray().withMessage('Images must be an array of strings').run(req);
@@ -167,6 +171,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
       description,
       price,
       discountPrice,
+      gender = ServiceGender.UNI,
       saloonId,
       primaryImage = '',
       images = [],
@@ -210,14 +215,27 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const count = await prisma.service.count({
+    const services = await prisma.service.findMany({
       where: {
         id: { in: uniqueServiceIds },
         saloonId: saloonId,
       },
+      select: { id: true, serviceGender: true },
     });
-    if (count !== uniqueServiceIds.length) {
+    if (services.length !== uniqueServiceIds.length) {
       throw new AppError('One or more services do not belong to the selected saloon', 400);
+    }
+
+    if (gender === ServiceGender.MALE) {
+      const hasFemale = services.some((s) => s.serviceGender === ServiceGender.FEMALE);
+      if (hasFemale) {
+        throw new AppError('Cannot add female-only services to a male package', 400);
+      }
+    } else if (gender === ServiceGender.FEMALE) {
+      const hasMale = services.some((s) => s.serviceGender === ServiceGender.MALE);
+      if (hasMale) {
+        throw new AppError('Cannot add male-only services to a female package', 400);
+      }
     }
 
     // Auto-calculate discountPrice using global percentage if not specified or zero
@@ -236,6 +254,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
         description,
         price,
         discountPrice: finalDiscountPrice,
+        gender,
         primaryImage,
         images,
         isCustom: false,
@@ -267,6 +286,15 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
 
     if (saloonIdQuery) {
       where.saloonId = saloonIdQuery;
+    }
+
+    const genderQuery = req.query.gender as ServiceGender;
+    if (genderQuery && Object.values(ServiceGender).includes(genderQuery)) {
+      if (req.query.exact === 'true') {
+        where.gender = genderQuery;
+      } else {
+        where.gender = { in: [genderQuery, ServiceGender.UNI] };
+      }
     }
 
     // Check if caller is Admin / Super Admin
@@ -374,6 +402,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
     await body('description').optional().trim().notEmpty().withMessage('Description cannot be empty').run(req);
     await body('price').optional().isFloat({ min: 0 }).withMessage('Price must be a positive number').run(req);
     await body('discountPrice').optional().isFloat({ min: 0 }).withMessage('Discount price must be a positive number').run(req);
+    await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
     await body('saloonId').optional().isUUID().withMessage('Invalid saloon ID format').run(req);
     await body('primaryImage').optional().isString().withMessage('Primary image must be a string').run(req);
     await body('images').optional().isArray().withMessage('Images must be an array of strings').run(req);
@@ -392,6 +421,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
       description,
       price,
       discountPrice,
+      gender,
       saloonId,
       primaryImage,
       images,
@@ -439,6 +469,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
 
     // Verify services belong to the target saloon
     const targetSaloonId = saloonId !== undefined ? saloonId : existingPackage.saloonId;
+    const targetGender = gender !== undefined ? gender : existingPackage.gender;
     const servicesToCheck = serviceIds !== undefined 
       ? serviceIds 
       : (saloonId !== undefined && saloonId !== existingPackage.saloonId 
@@ -450,14 +481,27 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
 
     if (servicesToCheck.length > 0) {
       const uniqueServicesToCheck = [...new Set(servicesToCheck as string[])];
-      const count = await prisma.service.count({
+      const services = await prisma.service.findMany({
         where: {
           id: { in: uniqueServicesToCheck },
           saloonId: targetSaloonId,
         },
+        select: { id: true, serviceGender: true },
       });
-      if (count !== uniqueServicesToCheck.length) {
+      if (services.length !== uniqueServicesToCheck.length) {
         throw new AppError('One or more services do not belong to the selected saloon', 400);
+      }
+
+      if (targetGender === ServiceGender.MALE) {
+        const hasFemale = services.some((s) => s.serviceGender === ServiceGender.FEMALE);
+        if (hasFemale) {
+          throw new AppError('Cannot add female-only services to a male package', 400);
+        }
+      } else if (targetGender === ServiceGender.FEMALE) {
+        const hasMale = services.some((s) => s.serviceGender === ServiceGender.MALE);
+        if (hasMale) {
+          throw new AppError('Cannot add male-only services to a female package', 400);
+        }
       }
     }
 
@@ -469,6 +513,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
         description: description !== undefined ? description : existingPackage.description,
         price: price !== undefined ? price : existingPackage.price,
         discountPrice: discountPrice !== undefined ? discountPrice : existingPackage.discountPrice,
+        gender: gender !== undefined ? gender : existingPackage.gender,
         saloonId: saloonId !== undefined ? saloonId : existingPackage.saloonId,
         primaryImage: primaryImage !== undefined ? primaryImage : existingPackage.primaryImage,
         images: images !== undefined ? images : existingPackage.images,
