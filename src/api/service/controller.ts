@@ -96,20 +96,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    // Check SAC code uniqueness across services
     const normalizedSacCode = sacCode.trim();
-    const existingSacService = await prisma.service.findFirst({
-      where: {
-        sacCode: {
-          equals: normalizedSacCode,
-          mode: 'insensitive',
-        },
-      },
-    });
-    if (existingSacService) {
-      res.json(new AppResponse('SAC code already exists', {}, 400));
-      return;
-    }
 
     // Create service in database
     const service = await prisma.service.create({
@@ -151,10 +138,6 @@ export const createService = async (req: Request, res: Response): Promise<void> 
 
     res.json(new AppResponse('Service created successfully', service, 201));
   } catch (error: any) {
-    if (error.code === 'P2002' && (error.meta?.target?.includes('sacCode') || String(error.message).includes('sacCode'))) {
-      res.json(new AppResponse('A service with this SAC code already exists', {}, 400));
-      return;
-    }
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }
@@ -412,25 +395,6 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    if (sacCode !== undefined) {
-      const normalizedSacCode = sacCode.trim();
-      if (normalizedSacCode.toLowerCase() !== (existingService.sacCode || '').toLowerCase()) {
-        const existingSacService = await prisma.service.findFirst({
-          where: {
-            sacCode: {
-              equals: normalizedSacCode,
-              mode: 'insensitive',
-            },
-            NOT: { id },
-          },
-        });
-        if (existingSacService) {
-          res.json(new AppResponse('SAC code already exists. Please choose a unique SAC code', {}, 400));
-          return;
-        }
-      }
-    }
-
     const updatedService = await prisma.service.update({
       where: { id },
       data: {
@@ -471,10 +435,6 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
 
     res.json(new AppResponse('Service updated successfully', updatedService, 200));
   } catch (error: any) {
-    if (error.code === 'P2002' && (error.meta?.target?.includes('sacCode') || String(error.message).includes('sacCode'))) {
-      res.json(new AppResponse('A service with this SAC code already exists', {}, 400));
-      return;
-    }
     const status = error instanceof AppError ? error.status : 500;
     res.json(new AppResponse(error.message || 'Internal Server Error', {}, status));
   }

@@ -198,7 +198,7 @@ enum ServiceGender {
 
 model Service {
   id               String        @id @default(uuid())
-  sacCode          String        @unique
+  sacCode          String
   name             String
   shortDescription String        @default("")
   nickName         String        @default("")
