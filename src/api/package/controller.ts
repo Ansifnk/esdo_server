@@ -158,6 +158,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
     await body('primaryImage').optional().isString().withMessage('Primary image must be a string').run(req);
     await body('images').optional().isArray().withMessage('Images must be an array of strings').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -176,6 +177,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
       primaryImage = '',
       images = [],
       serviceIds = [],
+      orderNo = 0,
     } = req.body;
 
     const user = req.user;
@@ -257,6 +259,7 @@ export const createPackage = async (req: Request, res: Response): Promise<void> 
         gender,
         primaryImage,
         images,
+        orderNo: Number(orderNo) || 0,
         isCustom: false,
         saloon: { connect: { id: saloonId } },
         services: {
@@ -349,6 +352,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         // Custom packages for the specific user are ordered FIRST!
         orderBy: [
           { isCustom: 'desc' },
+          { orderNo: 'asc' },
           { createdAt: 'desc' },
         ],
       }),
@@ -407,6 +411,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
     await body('primaryImage').optional().isString().withMessage('Primary image must be a string').run(req);
     await body('images').optional().isArray().withMessage('Images must be an array of strings').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -426,6 +431,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
       primaryImage,
       images,
       serviceIds,
+      orderNo,
     } = req.body;
 
     const user = req.user;
@@ -517,6 +523,7 @@ export const updatePackage = async (req: Request, res: Response): Promise<void> 
         saloonId: saloonId !== undefined ? saloonId : existingPackage.saloonId,
         primaryImage: primaryImage !== undefined ? primaryImage : existingPackage.primaryImage,
         images: images !== undefined ? images : existingPackage.images,
+        orderNo: orderNo !== undefined ? Number(orderNo) : existingPackage.orderNo,
         services: serviceIds !== undefined ? {
           set: serviceIds.map((sid: string) => ({ id: sid })),
         } : undefined,

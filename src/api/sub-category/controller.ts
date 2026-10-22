@@ -9,6 +9,7 @@ export const createSubCategory = async (req: Request, res: Response): Promise<vo
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('categoryId').isUUID().withMessage('Invalid category ID format').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -16,7 +17,7 @@ export const createSubCategory = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const { name, image, categoryId }: { name: string; image?: string; categoryId: string } = req.body;
+    const { name, image, categoryId, orderNo }: { name: string; image?: string; categoryId: string; orderNo?: number } = req.body;
 
     const parentExists = await prisma.category.findUnique({
       where: { id: categoryId },
@@ -43,6 +44,7 @@ export const createSubCategory = async (req: Request, res: Response): Promise<vo
         name: name.trim(),
         image: image ?? '',
         categoryId,
+        orderNo: orderNo !== undefined ? Number(orderNo) : 0,
       },
     });
 
@@ -78,7 +80,7 @@ export const getSubCategories = async (req: Request, res: Response): Promise<voi
         },
         skip: pagination.offset,
         take: pagination.limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
       }),
       prisma.subCategory.count({ where: whereClause }),
     ]);
@@ -125,6 +127,7 @@ export const updateSubCategory = async (req: Request, res: Response): Promise<vo
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('categoryId').optional().isUUID().withMessage('Invalid category ID format').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -133,7 +136,7 @@ export const updateSubCategory = async (req: Request, res: Response): Promise<vo
     }
 
     const id = req.params.id as string;
-    const { name, image, categoryId } = req.body;
+    const { name, image, categoryId, orderNo } = req.body;
 
     const existingSubCategory = await prisma.subCategory.findUnique({
       where: { id },
@@ -177,6 +180,7 @@ export const updateSubCategory = async (req: Request, res: Response): Promise<vo
         name: targetName,
         image: image !== undefined ? image : existingSubCategory.image,
         categoryId: targetCategoryId,
+        orderNo: orderNo !== undefined ? Number(orderNo) : existingSubCategory.orderNo,
       },
     });
 

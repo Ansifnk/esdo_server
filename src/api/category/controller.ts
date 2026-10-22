@@ -10,6 +10,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -17,7 +18,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const { name, image, gender }: { name: string; image?: string; gender?: ServiceGender } = req.body;
+    const { name, image, gender, orderNo }: { name: string; image?: string; gender?: ServiceGender; orderNo?: number } = req.body;
     const targetGender = gender ?? ServiceGender.UNI;
 
     const isExist = await prisma.category.findFirst({
@@ -37,6 +38,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
         name: name.trim(),
         image: image ?? '',
         gender: targetGender,
+        orderNo: orderNo !== undefined ? Number(orderNo) : 0,
       },
     });
 
@@ -51,7 +53,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
     const { includeSubCategories, search, gender } = req.query;
 
     const includeClause = includeSubCategories === 'true'
-      ? { subCategories: { orderBy: { createdAt: 'desc' as const } } }
+      ? { subCategories: { orderBy: [{ orderNo: 'asc' as const }, { createdAt: 'desc' as const }] } }
       : undefined;
 
     const where: any = {};
@@ -69,7 +71,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
         include: includeClause,
         skip: pagination.offset,
         take: pagination.limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
       }),
       prisma.category.count({ where }),
     ]);
@@ -96,7 +98,7 @@ export const getCategoryById = async (req: Request, res: Response): Promise<void
       where: { id },
       include: {
         subCategories: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
         },
       },
     });
@@ -118,6 +120,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('gender').optional().isIn(Object.values(ServiceGender)).withMessage('Invalid gender').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -126,7 +129,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     }
 
     const id = req.params.id as string;
-    const { name, image, gender } = req.body;
+    const { name, image, gender, orderNo } = req.body;
 
     const existingCategory = await prisma.category.findUnique({
       where: { id },
@@ -159,6 +162,7 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
         name: targetName,
         image: image !== undefined ? image : existingCategory.image,
         gender: targetGender,
+        orderNo: orderNo !== undefined ? Number(orderNo) : existingCategory.orderNo,
       },
     });
 

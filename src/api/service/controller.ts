@@ -24,6 +24,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
     await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -49,6 +50,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       stylistIds = [],
       afterCareMessage = '',
       duration = 0,
+      orderNo = 0,
       relatedServiceIds = [],
     } = req.body;
 
@@ -113,6 +115,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         images,
         afterCareMessage,
         duration,
+        orderNo: Number(orderNo) || 0,
         saloon: { connect: { id: saloonId } },
         categories: {
           connect: categoryIds.map((id: string) => ({ id })),
@@ -214,7 +217,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
         },
         skip: pagination.offset,
         take: pagination.limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
       }),
       prisma.service.count({ where }),
     ]);
@@ -303,6 +306,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     await body('stylistIds').optional().isArray().withMessage('stylistIds must be an array').run(req);
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
     await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -329,6 +333,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       stylistIds,
       afterCareMessage,
       duration,
+      orderNo,
       relatedServiceIds,
     } = req.body;
 
@@ -411,6 +416,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         serviceGender: serviceGender !== undefined ? serviceGender : existingService.serviceGender,
         afterCareMessage: afterCareMessage !== undefined ? afterCareMessage : existingService.afterCareMessage,
         duration: duration !== undefined ? duration : existingService.duration,
+        orderNo: orderNo !== undefined ? Number(orderNo) : existingService.orderNo,
         categories: categoryIds !== undefined ? {
           set: categoryIds.map((cid: string) => ({ id: cid })),
         } : undefined,
