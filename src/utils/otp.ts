@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { smsTemplateSend } from './smsUtils';
+import { NODE_ENV, SMS_OTP_TEMPLATE_ID, USE_STATIC_OTP } from '../configs/env';
 
 /**
  * Clean and normalize phone number string
@@ -100,7 +101,7 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
   });
 
   // Allow static dev fallback '1234' in development environment
-  const isMatch = inputOtp === record.otp || (process.env.NODE_ENV === 'development' && inputOtp === '1234');
+  const isMatch = inputOtp === record.otp || (NODE_ENV === 'development' && USE_STATIC_OTP && inputOtp === '1234');
 
   if (!isMatch) {
     return { valid: false, message: 'Invalid OTP code. Please check and try again.' };
@@ -115,20 +116,19 @@ export async function verifyOtpCode(phone: string, inputOtp: string): Promise<{ 
  * Send OTP SMS helper (logs to console in dev mode, extensible for SMS gateway integration)
  */
 export async function sendOtpSms(phone: string, otp: string): Promise<{ success: boolean; message?: string }> {
-  console.log('seniiiii')
   try {
     const normalizedPhone = normalizePhone(phone);
 
-    const templateId = process.env.SMS_OTP_TEMPLATE_ID;
+    const templateId = SMS_OTP_TEMPLATE_ID;
     if (!templateId) {
       return {
         success: false,
-        message: 'Template id not found'
-      }
+        message: 'Template id not found',
+      };
     }
 
-    const result = await smsTemplateSend(templateId, [normalizedPhone]);
-    console.log(result, 'oooooooo')
+    const message = `Dear Member, ${otp} is your OTP for registration. Team ESDO`;
+    const result = await smsTemplateSend(templateId, [normalizedPhone], message);
     if (!result.success) {
       return { success: false, message: result.message };
     }
