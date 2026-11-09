@@ -267,6 +267,7 @@ model PackageSetting {
 enum OfferType {
   BANNER
   COUPON
+  POPUP
 }
 
 enum DiscountType {

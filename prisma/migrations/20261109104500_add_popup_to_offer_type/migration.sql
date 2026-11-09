@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "OfferType" ADD VALUE IF NOT EXISTS 'POPUP';
+

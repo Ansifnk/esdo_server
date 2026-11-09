@@ -75,9 +75,9 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Conditional Validation based on Offer Type
-    if (type === OfferType.BANNER) {
+    if (type === OfferType.BANNER || type === OfferType.POPUP) {
       if (!bannerImage) {
-        res.json(new AppResponse('Banner image is required for banner offers', {}, 400));
+        res.json(new AppResponse(`${type === OfferType.POPUP ? 'Popup' : 'Banner'} image is required`, {}, 400));
         return;
       }
       if (discountValue !== undefined && Number(discountValue) < 0) {
@@ -166,9 +166,9 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
         type,
         placement: type === OfferType.BANNER && placement ? placement : BannerPlacement.HERO,
         gender,
-        bannerImage: type === OfferType.BANNER ? bannerImage : '',
-        mobileBannerImage: type === OfferType.BANNER ? (mobileBannerImage || '') : '',
-        linkUrl: linkUrl || '',
+        bannerImage: (type === OfferType.BANNER || type === OfferType.POPUP) ? bannerImage : '',
+        mobileBannerImage: (type === OfferType.BANNER || type === OfferType.POPUP) ? (mobileBannerImage || '') : '',
+        linkUrl: (type === OfferType.BANNER || type === OfferType.POPUP) ? (linkUrl || '') : '',
         couponCode: type === OfferType.COUPON ? couponCode : '',
         discountType: discountType,
         discountValue: Number(discountValue) || 0,
@@ -458,10 +458,10 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
     }
 
     // Verify type-specific rules
-    if (finalType === OfferType.BANNER) {
+    if (finalType === OfferType.BANNER || finalType === OfferType.POPUP) {
       const finalBannerImage = bannerImage !== undefined ? bannerImage : existingOffer.bannerImage;
       if (!finalBannerImage) {
-        res.json(new AppResponse('Banner image is required for banner offers', {}, 400));
+        res.json(new AppResponse(`${finalType === OfferType.POPUP ? 'Popup' : 'Banner'} image is required`, {}, 400));
         return;
       }
       const finalDiscountValue = discountValue !== undefined ? Number(discountValue) : existingOffer.discountValue;
@@ -545,8 +545,8 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         type: finalType,
         placement: placement !== undefined ? placement : existingOffer.placement,
         gender: gender !== undefined ? gender : existingOffer.gender,
-        bannerImage: finalType === OfferType.BANNER ? (bannerImage !== undefined ? bannerImage : existingOffer.bannerImage) : '',
-        mobileBannerImage: finalType === OfferType.BANNER ? (mobileBannerImage !== undefined ? mobileBannerImage : existingOffer.mobileBannerImage) : '',
+        bannerImage: (finalType === OfferType.BANNER || finalType === OfferType.POPUP) ? (bannerImage !== undefined ? bannerImage : existingOffer.bannerImage) : '',
+        mobileBannerImage: (finalType === OfferType.BANNER || finalType === OfferType.POPUP) ? (mobileBannerImage !== undefined ? mobileBannerImage : existingOffer.mobileBannerImage) : '',
         linkUrl: linkUrl !== undefined ? linkUrl : existingOffer.linkUrl,
         couponCode: finalType === OfferType.COUPON ? (couponCode !== undefined ? couponCode : existingOffer.couponCode) : '',
         discountType: discountType !== undefined ? discountType : existingOffer.discountType,
