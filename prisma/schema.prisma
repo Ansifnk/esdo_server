@@ -528,6 +528,25 @@ model Membership {
   @@index([isActive])
 }
 
+model MembershipPlan {
+  id             String   @id @default(uuid())
+  name           String   // e.g. "Gold VIP Club"
+  tagline        String?  @default("") // e.g. "Most Popular"
+  description    String?  @default("")
+  amount         Float    // Price paid by customer (e.g. 5000)
+  benefitValue   Float    // Total credits given (e.g. 6500)
+  validityMonths Int      @default(12) // Validity duration in months (0 = lifetime)
+  features       String[] @default([]) // Bullet points of perks
+  isPopular      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  orderNo        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([orderNo])
+}
+
 enum MembershipTxType {
   CREDIT
   DEBIT

@@ -8,6 +8,10 @@ export interface MembershipSummary {
   isInfinite: boolean; // true if active membership has no expiry
   activeMembershipsCount: number;
   memberships: any[];
+  isExpired: boolean; // true if customer has no active memberships, but previously had expired ones
+  canRenew: boolean; // strictly true ONLY when current membership has expired
+  expiredMemberships: any[];
+  lastExpiredDate: string | null;
 }
 
 /**
@@ -33,6 +37,16 @@ export async function getCustomerMembershipSummary(customerId: string): Promise<
     ],
   });
 
+  // Find all expired memberships (for renewal logic and history)
+  const expiredMemberships = await prisma.membership.findMany({
+    where: {
+      customerId,
+      isActive: true,
+      endDate: { lt: now },
+    },
+    orderBy: { endDate: 'desc' },
+  });
+
   const totalBalance = allActiveMemberships.reduce((sum, m) => sum + Math.max(0, m.balance), 0);
   const hasMembership = allActiveMemberships.length > 0;
 
@@ -50,6 +64,11 @@ export async function getCustomerMembershipSummary(customerId: string): Promise<
     }
   }
 
+  // Strict constraint: Can ONLY renew once expired!
+  const isExpired = !hasMembership && expiredMemberships.length > 0;
+  const canRenew = isExpired;
+  const lastExpiredDate = expiredMemberships[0]?.endDate ? expiredMemberships[0].endDate.toISOString() : null;
+
   return {
     hasMembership,
     totalBalance,
@@ -57,6 +76,10 @@ export async function getCustomerMembershipSummary(customerId: string): Promise<
     isInfinite: hasInfinite && !nearestExpiryDate,
     activeMembershipsCount: allActiveMemberships.length,
     memberships: allActiveMemberships,
+    isExpired,
+    canRenew,
+    expiredMemberships,
+    lastExpiredDate,
   };
 }
 
