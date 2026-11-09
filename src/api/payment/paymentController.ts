@@ -11,6 +11,7 @@ import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '.
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
 import { RewardTxType } from '../../generated/prisma/enums';
+import { sendBookingDetailsSms } from '../../utils/smsUtils';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -252,6 +253,7 @@ export async function createBookingAndClearCart(
         },
       },
       include: {
+        customer: true,
         items: {
           include: {
             service: true,
@@ -312,6 +314,19 @@ export async function createBookingAndClearCart(
     await generateOrGetInvoiceForBooking(booking.id);
   } catch (invErr) {
     console.error('Failed to auto-generate invoice:', invErr);
+  }
+
+  // Send Booking Details SMS to customer
+  const customerPhone = customer.phone || (booking as any)?.customer?.phone;
+  if (customerPhone) {
+    try {
+      const smsResult = await sendBookingDetailsSms(customerPhone, booking.bookingNumber);
+      if (!smsResult.success) {
+        console.warn('[PAYMENT BOOKING SMS FAILED]', smsResult.message || smsResult.error);
+      }
+    } catch (smsErr) {
+      console.error('Failed to send booking SMS upon payment completion:', smsErr);
+    }
   }
 
   return booking;

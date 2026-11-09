@@ -25,5 +25,6 @@ export const SMS_CLIENT_ID = process.env.SMS_CLIENT_ID || '';
 export const SMS_SENDER_ID = process.env.SMS_SENDER_ID || '';
 export const SMS_PEID = process.env.SMS_PEID || '';
 export const SMS_OTP_TEMPLATE_ID = process.env.SMS_OTP_TEMPLATE_ID || '';
+export const SMS_BOOKING_DETAILS_TEMPLATE_ID = process.env.SMS_BOOKING_DETAILS_TEMPLATE_ID || '';
 export const SMS_TEMPLATE_API_URL = process.env.SMS_TEMPLATE_API_URL || 'https://sendsms.stmtechnologies.com/api/v2/SendSMS';
 

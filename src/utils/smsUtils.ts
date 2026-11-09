@@ -1,11 +1,25 @@
 import {
+  NODE_ENV,
   SMS_API_KEY,
   SMS_CLIENT_ID,
   SMS_SENDER_ID,
   SMS_PEID,
   SMS_OTP_TEMPLATE_ID,
+  SMS_BOOKING_DETAILS_TEMPLATE_ID,
   SMS_TEMPLATE_API_URL,
 } from '../configs/env';
+
+/**
+ * Clean and normalize phone number string
+ */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  // If 10 digit Indian number, append country code 91
+  if (digits.length === 10) {
+    return `91${digits}`;
+  }
+  return digits;
+}
 
 /**
  * SMS utility functions for STM Technologies SMS gateway.
@@ -94,7 +108,7 @@ export async function sendSms(params: SendSmsParams): Promise<SmsSendResponse> {
       apiUrl = apiUrl.replace('http://', 'https://');
     }
 
-    if (process.env.NODE_ENV === 'development') {
+    if (NODE_ENV === 'development') {
       console.log('[SMS SEND PAYLOAD]', payload);
     }
 
@@ -115,7 +129,7 @@ export async function sendSms(params: SendSmsParams): Promise<SmsSendResponse> {
       responseData = responseText;
     }
 
-    if (process.env.NODE_ENV === 'development') {
+    if (NODE_ENV === 'development') {
       console.log('[SMS SEND RESPONSE]', responseData);
     }
 
@@ -186,9 +200,59 @@ export async function smsTemplateSend(
   });
 }
 
+/**
+ * Send Booking Details SMS
+ * Template Name: BOOKINGDETAILS
+ * Template ID: 1707172112165176475
+ * Message: Your booking no {#var#} is confirmed. Please login to view booking details. Team ESDO
+ */
+export async function sendBookingDetailsSms(
+  phone: string,
+  bookingNo: string | number
+): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  try {
+    const normalizedPhone = normalizePhone(phone);
+
+    const templateId = SMS_BOOKING_DETAILS_TEMPLATE_ID;
+    if (!templateId) {
+      return {
+        success: false,
+        message: 'Booking details template id not found',
+      };
+    }
+
+    const message = `Your booking no ${bookingNo} is confirmed. Please login to view booking details. Team ESDO`;
+    const result = await smsTemplateSend(templateId, [normalizedPhone], message);
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.message || 'Failed to send booking details SMS',
+        error: result.error,
+        data: result.data,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Booking details SMS sent successfully',
+      data: result.data,
+    };
+  } catch (error: any) {
+    console.error('[BOOKING SMS SERVICE ERROR]', error);
+    return {
+      success: false,
+      message: error?.message || 'Failed to send booking details SMS',
+      error: error?.message,
+    };
+  }
+}
+
 export const smsUtils = {
   sendSms,
   smsTemplateSend,
+  sendBookingDetailsSms,
+  normalizePhone,
 };
 
 export default smsUtils;

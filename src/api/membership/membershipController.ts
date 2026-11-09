@@ -634,9 +634,8 @@ export const verifyAndActivateMembership = async (req: Request, res: Response): 
 
       // 4. Create CREDIT Transaction
       const txNote = isRenewal
-        ? `Membership renewed with ${plan.name}. Paid ₹${plan.amount} for ₹${plan.benefitValue} benefit${
-            carryForwardBalance > 0 ? ` + ₹${carryForwardBalance} rolled-over unspent balance` : ''
-          }.`
+        ? `Membership renewed with ${plan.name}. Paid ₹${plan.amount} for ₹${plan.benefitValue} benefit${carryForwardBalance > 0 ? ` + ₹${carryForwardBalance} rolled-over unspent balance` : ''
+        }.`
         : `Membership joined with ${plan.name}. Paid ₹${plan.amount} for ₹${plan.benefitValue} benefit value.`;
 
       await tx.membershipTransaction.create({
@@ -658,8 +657,8 @@ export const verifyAndActivateMembership = async (req: Request, res: Response): 
     res.status(201).json(
       new AppResponse(
         isRenewal
-          ? 'VIP Membership renewed successfully!'
-          : 'Welcome to ES_DO VIP Club! Membership activated successfully.',
+          ? 'Membership renewed successfully!'
+          : 'Welcome! Membership activated successfully.',
         {
           membership: result.newMembership,
           payment: result.updatedPayment,

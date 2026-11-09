@@ -9,6 +9,7 @@ import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey } from '../staff/controller';
+import { sendBookingDetailsSms } from '../../utils/smsUtils';
 
 /**
  * GET /api/bookings (Customer)
@@ -744,6 +745,18 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         await generateOrGetInvoiceForBooking(newBooking.id);
       } catch (invErr) {
         console.error('Failed to auto-generate invoice on admin booking create:', invErr);
+      }
+    }
+
+    const customerPhone = newBooking.customer?.phone || existingCustomer.phone;
+    if (customerPhone) {
+      try {
+        const smsResult = await sendBookingDetailsSms(customerPhone, newBooking.bookingNumber);
+        if (!smsResult.success) {
+          console.warn('[ADMIN BOOKING SMS FAILED]', smsResult.message || smsResult.error);
+        }
+      } catch (smsErr) {
+        console.error('Failed to send booking SMS on admin booking create:', smsErr);
       }
     }
 
