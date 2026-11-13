@@ -177,6 +177,11 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
 
     const typeQuery = req.query.type as StaffType;
     const serviceGenderQuery = req.query.serviceGender as ServiceGender;
+    const serviceIdQuery = req.query.serviceId as string;
+
+    if (serviceIdQuery) {
+      where.services = { some: { id: serviceIdQuery } };
+    }
 
     if (stylistCategoryQuery && Object.values(StylistCategory).includes(stylistCategoryQuery)) {
       where.stylistCategory = stylistCategoryQuery;
