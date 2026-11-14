@@ -2,23 +2,30 @@ import crypto from 'crypto';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
-  AWS_ACCESS_KEY_ID,
-  AWS_SECRET_ACCESS_KEY,
-  AWS_REGION,
-  AWS_S3_BUCKET,
-  AWS_PUBLIC_S3_URL,
+  R2_ACCOUNT_ID,
+  R2_ACCESS_KEY_ID,
+  R2_SECRET_ACCESS_KEY,
+  R2_BUCKET,
+  R2_PUBLIC_URL,
+  R2_ENDPOINT,
+  R2_REGION,
 } from '../configs/env';
 
-const s3Client = new S3Client({
-  region: AWS_REGION,
+const endpoint =
+  R2_ENDPOINT ||
+  (R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined);
+
+export const r2Client = new S3Client({
+  region: R2_REGION || 'auto',
+  ...(endpoint ? { endpoint } : {}),
   credentials: {
-    accessKeyId: AWS_ACCESS_KEY_ID,
-    secretAccessKey: AWS_SECRET_ACCESS_KEY,
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
   },
 });
 
 /**
- * Generate a pre-signed PUT URL.
+ * Generate a pre-signed PUT URL for uploading directly to Cloudflare R2.
  */
 export const generatePresignedPutUrl = async (
   originalName: string,
@@ -29,7 +36,7 @@ export const generatePresignedPutUrl = async (
 ) => {
   const extension = originalName.split('.').pop() || '';
   let path = '';
-  
+
   if (savePath) {
     // If savePath already starts with the directory name, use it directly.
     // Otherwise, prepend the directory prefix.
@@ -43,7 +50,7 @@ export const generatePresignedPutUrl = async (
     path = `${directory}/${uuid}${extension ? `.${extension}` : ''}`;
   }
 
-  const bucket = AWS_S3_BUCKET;
+  const bucket = R2_BUCKET;
 
   const command = new PutObjectCommand({
     Bucket: bucket,
@@ -51,29 +58,38 @@ export const generatePresignedPutUrl = async (
     ContentType: mimeType,
   });
 
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  const uploadUrl = await getSignedUrl(r2Client, command, { expiresIn: 3600 });
 
-  return { uploadUrl, s3Path: path, s3Bucket: bucket };
+  return {
+    uploadUrl,
+    path,
+    bucket,
+  };
 };
 
 /**
- * Generate a pre-signed GET URL.
+ * Generate a pre-signed GET URL for reading/downloading private objects.
  */
 export const generatePresignedGetUrl = async (bucket: string, path: string) => {
   const command = new GetObjectCommand({
-    Bucket: bucket,
+    Bucket: bucket || R2_BUCKET,
     Key: path,
   });
 
-  return await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  return await getSignedUrl(r2Client, command, { expiresIn: 3600 });
 };
 
 /**
- * Build a public access URL for public files.
+ * Build a public access URL for public files in Cloudflare R2.
  */
 export const buildPublicUrl = (bucket: string, path: string): string => {
-  if (AWS_PUBLIC_S3_URL) {
-    return `${AWS_PUBLIC_S3_URL.replace(/\/$/, '')}/${path}`;
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+  if (R2_PUBLIC_URL) {
+    return `${R2_PUBLIC_URL.replace(/\/$/, '')}/${cleanPath}`;
   }
-  return `https://${bucket}.s3.${AWS_REGION}.amazonaws.com/${path}`;
+  if (endpoint) {
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${cleanPath}`;
+  }
+  return `https://${bucket}.r2.cloudflarestorage.com/${cleanPath}`;
 };
+

@@ -4,17 +4,17 @@ import { prisma } from '../../lib/prisma';
 import AppError from '../../models/AppError';
 import AppResponse from '../../models/AppResponse';
 import validate from '../../utils/validate';
-import { generatePresignedPutUrl, generatePresignedGetUrl, buildPublicUrl } from '../../utils/s3';
+import { generatePresignedPutUrl, generatePresignedGetUrl, buildPublicUrl } from '../../utils/r2';
 import {
   MAX_TEMPLATE_IMAGE_UPLOAD_BYTES,
   MAX_UPLOAD_FILE_SIZE_BYTES,
   MAX_WEBSITE_HERO_VIDEO_UPLOAD_BYTES,
-  AWS_S3_BUCKET,
+  R2_BUCKET,
 } from '../../configs/env';
 
 /**
  * Create a file metadata record and return a pre-signed PUT URL in one step.
- * The frontend uses the returned uploadUrl to PUT the file directly to S3.
+ * The frontend uses the returned uploadUrl to PUT the file directly to Cloudflare R2 / storage.
  */
 export const createFileAndGetUploadUrl = async (
   req: Request,
@@ -75,21 +75,22 @@ export const createFileAndGetUploadUrl = async (
       }
     }
 
-    const { uploadUrl, s3Path, s3Bucket } = await generatePresignedPutUrl(
-      originalName as string,
-      mimeType as string,
-      isPrivateFlag,
-      uploadDirectory || 'uploads',
-      targetSavePath || undefined,
-    );
+    const { uploadUrl, path: filePath, bucket: fileBucket } =
+      await generatePresignedPutUrl(
+        originalName as string,
+        mimeType as string,
+        isPrivateFlag,
+        uploadDirectory || 'uploads',
+        targetSavePath || undefined,
+      );
 
-    const publicUrl = isPrivateFlag ? '' : buildPublicUrl(s3Bucket, s3Path);
+    const publicUrl = isPrivateFlag ? '' : buildPublicUrl(fileBucket, filePath);
 
     const file = await prisma.file.create({
       data: {
         originalName: originalName as string,
-        path: s3Path,
-        bucket: s3Bucket,
+        path: filePath,
+        bucket: fileBucket,
         isPrivate: isPrivateFlag,
         publicUrl,
         mimeType: mimeType as string,
@@ -188,7 +189,7 @@ export const deleteFile = async (req: Request, res: Response): Promise<void> => 
 
 /**
  * Generate a pre-signed PUT URL directly without saving a database record.
- * The frontend uses the returned uploadUrl to PUT the file directly to S3.
+ * The frontend uses the returned uploadUrl to PUT the file directly to Cloudflare R2 / storage.
  */
 export const getUploadUrlWithoutDB = async (
   req: Request,
@@ -249,22 +250,23 @@ export const getUploadUrlWithoutDB = async (
       }
     }
 
-    const { uploadUrl, s3Path, s3Bucket } = await generatePresignedPutUrl(
-      originalName as string,
-      mimeType as string,
-      isPrivateFlag,
-      uploadDirectory || 'uploads',
-      targetSavePath || undefined,
-    );
+    const { uploadUrl, path: filePath, bucket: fileBucket } =
+      await generatePresignedPutUrl(
+        originalName as string,
+        mimeType as string,
+        isPrivateFlag,
+        uploadDirectory || 'uploads',
+        targetSavePath || undefined,
+      );
 
-    const publicUrl = isPrivateFlag ? '' : buildPublicUrl(s3Bucket, s3Path);
+    const publicUrl = isPrivateFlag ? '' : buildPublicUrl(fileBucket, filePath);
 
     res.json(
       new AppResponse(
         'Upload URL generated',
         {
-          s3Path,
-          s3Bucket,
+          path: filePath,
+          bucket: fileBucket,
           publicUrl,
           uploadUrl,
         },
@@ -278,7 +280,7 @@ export const getUploadUrlWithoutDB = async (
 };
 
 /**
- * Get file metadata or resolve S3 path/URL.
+ * Get file metadata or resolve storage path/URL.
  * If the ID parameter is a UUID, it looks up in the File table.
  * Otherwise, it constructs the public URL directly from the path.
  */
@@ -313,16 +315,16 @@ export const getFileByIdOrPath = async (req: Request, res: Response): Promise<vo
       }
     }
 
-    // Treat as direct S3 path
-    const s3Path = target;
-    const bucket = AWS_S3_BUCKET;
-    const publicUrl = buildPublicUrl(bucket, s3Path);
+    // Treat as direct storage path
+    const filePath = target;
+    const bucket = R2_BUCKET;
+    const publicUrl = buildPublicUrl(bucket, filePath);
 
     res.json(
       new AppResponse('File path resolved successfully', {
-        id: s3Path,
-        originalName: s3Path.split('/').pop() || s3Path,
-        path: s3Path,
+        id: filePath,
+        originalName: filePath.split('/').pop() || filePath,
+        path: filePath,
         bucket,
         isPrivate: false,
         publicUrl,
