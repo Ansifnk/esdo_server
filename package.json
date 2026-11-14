@@ -5,6 +5,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
+    "seed:superadmin": "ts-node prisma/seedSuperAdmin.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

@@ -148,6 +148,7 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       date,
       paymentStatus,
       paymentMode,
+      source,
     } = req.query;
 
     const paginationParams = getPagination(req, 10);
@@ -162,6 +163,10 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       }
     } else if (saloonId && typeof saloonId === 'string' && saloonId.trim() !== '') {
       where.saloonId = saloonId;
+    }
+
+    if (source && typeof source === 'string' && ['ADMIN', 'WEBSITE'].includes(source.trim())) {
+      where.source = source.trim();
     }
 
     if (status && typeof status === 'string' && status.trim() !== '') {
@@ -669,11 +674,18 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     }
 
     const balanceAfterDiscount = Math.max(0, subtotal - numericDiscount);
+    const effectivePaymentStatus = paymentMode === PaymentMode.MEMBERSHIP ? PaymentStatus.SUCCESS : paymentStatus;
 
-    // Validate and Calculate membership deduction if requested
+    // Validate and Calculate membership deduction if requested or if paymentMode is MEMBERSHIP
     let actualMembershipUsed = 0;
-    if (membershipUsed !== undefined && membershipUsed !== null) {
-      const numMemUsed = Number(membershipUsed);
+    const requestedMemUsed =
+      paymentMode === PaymentMode.MEMBERSHIP &&
+      (membershipUsed === undefined || membershipUsed === null || Number(membershipUsed) === 0)
+        ? balanceAfterDiscount
+        : membershipUsed;
+
+    if (requestedMemUsed !== undefined && requestedMemUsed !== null) {
+      const numMemUsed = Number(requestedMemUsed);
       if (isNaN(numMemUsed) || numMemUsed < 0) {
         throw new AppError('Membership used amount must be a valid non-negative number', 400);
       }
@@ -702,7 +714,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           customerId: targetCustomerId,
           saloonId: targetSaloonId,
           status,
-          paymentStatus,
+          paymentStatus: effectivePaymentStatus,
           paymentMode,
           subtotal,
           discount: numericDiscount,

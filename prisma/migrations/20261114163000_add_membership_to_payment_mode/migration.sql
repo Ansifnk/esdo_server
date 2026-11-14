@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "PaymentMode" ADD VALUE IF NOT EXISTS 'MEMBERSHIP';
+

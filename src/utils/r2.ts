@@ -11,10 +11,7 @@ import {
   R2_REGION,
 } from '../configs/env';
 
-const endpoint =
-  R2_ENDPOINT ||
-  (R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined);
-
+const endpoint = R2_ENDPOINT
 export const r2Client = new S3Client({
   region: R2_REGION || 'auto',
   ...(endpoint ? { endpoint } : {}),
