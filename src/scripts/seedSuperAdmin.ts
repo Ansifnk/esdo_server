@@ -1,8 +1,8 @@
 import bcrypt from 'bcrypt';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { prisma } from '../src/lib/prisma';
-import { Role } from '../src/generated/prisma/enums';
+import { prisma } from '../lib/prisma';
+import { Role } from '../generated/prisma/enums';
 
 function getCliOption(name: string, short?: string): string | undefined {
   const args = process.argv.slice(2);
@@ -77,7 +77,7 @@ async function main() {
     });
 
     const hasSuperAdminRole = existingUser.roles.some(
-      (r) => r.role === Role.SUPER_ADMIN
+      (r: { role: string }) => r.role === Role.SUPER_ADMIN
     );
 
     if (!hasSuperAdminRole) {
@@ -114,7 +114,7 @@ async function main() {
     console.log(`✅ Super Admin created successfully!`);
     console.log(`ID: ${newUser.id}`);
     console.log(`Email: ${newUser.email}`);
-    console.log(`Roles: ${newUser.roles.map((r) => r.role).join(', ')}`);
+    console.log(`Roles: ${newUser.roles.map((r: { role: string }) => r.role).join(', ')}`);
   }
 }
 

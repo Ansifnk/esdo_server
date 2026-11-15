@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "main": "dist/app.js",
   "scripts": {
-    "build": "tsc",
+    "postinstall": "prisma generate",
+    "build": "prisma generate && tsc",
     "start": "node dist/app.js",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "seed:superadmin": "ts-node prisma/seedSuperAdmin.ts",
+    "seed:superadmin": "node prisma/seedSuperAdmin.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
