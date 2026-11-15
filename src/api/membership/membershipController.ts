@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
-import { getCustomerMembershipSummary } from './membershipService';
+import { getCustomerMembershipSummary, activateMembershipPayment } from './membershipService';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } from '../../configs/env';
 
 // Initialize Razorpay client instance
@@ -521,138 +521,14 @@ export const verifyAndActivateMembership = async (req: Request, res: Response): 
       throw new AppError('Missing required payment verification details', 400);
     }
 
-    // Find the plan
-    const plan = await prisma.membershipPlan.findUnique({
-      where: { id: String(planId) },
+    const result = await activateMembershipPayment({
+      customerId,
+      planId: String(planId),
+      isRenewal: Boolean(isRenewal),
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
     });
-
-    if (!plan) {
-      throw new AppError('Selected membership plan not found', 404);
-    }
-
-    // Enforce renewal check
-    const summary = await getCustomerMembershipSummary(customerId);
-    if (isRenewal && !summary.canRenew) {
-      throw new AppError(
-        'Current membership is still active. Renewal is only permitted once current membership expires.',
-        400
-      );
-    }
-
-    // Find payment record
-    const payment = await prisma.payment.findUnique({
-      where: { razorpayOrderId },
-    });
-
-    if (!payment) {
-      throw new AppError('Payment record not found for this order', 404);
-    }
-
-    // Verify signature if not test/mock
-    const isMock =
-      razorpayPaymentId?.startsWith('pay_mock_') ||
-      razorpayPaymentId?.startsWith('pay_test_') ||
-      razorpayOrderId?.startsWith('order_mock_');
-
-    if (!isMock && RAZORPAY_KEY_SECRET && razorpaySignature) {
-      const body = `${razorpayOrderId}|${razorpayPaymentId}`;
-      const expectedSignature = crypto
-        .createHmac('sha256', RAZORPAY_KEY_SECRET)
-        .update(body.toString())
-        .digest('hex');
-
-      if (expectedSignature !== razorpaySignature) {
-        throw new AppError('Invalid payment signature', 400);
-      }
-    }
-
-    // Calculate dates
-    const startDate = new Date();
-    let endDate: Date | null = null;
-    if (plan.validityMonths > 0) {
-      endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + plan.validityMonths);
-    }
-
-    // Carry forward any unspent balance if renewing
-    let carryForwardBalance = 0;
-    if (isRenewal && summary.expiredMemberships.length > 0) {
-      carryForwardBalance = summary.expiredMemberships.reduce(
-        (sum, m) => sum + Math.max(0, m.balance || 0),
-        0
-      );
-    }
-
-    const totalNewBalance = plan.benefitValue + carryForwardBalance;
-
-    // Database transaction to update payment & create membership
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Update Payment
-      const updatedPayment = await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'SUCCESS',
-          razorpayPaymentId: razorpayPaymentId || `pay_mock_${Date.now()}`,
-          razorpaySignature: razorpaySignature || 'mock_sig',
-        },
-      });
-
-      // 2. If renewing, mark expired memberships' remaining balance to 0 so it's not double-counted
-      if (isRenewal && carryForwardBalance > 0) {
-        for (const expMem of summary.expiredMemberships) {
-          if (expMem.balance > 0) {
-            await tx.membership.update({
-              where: { id: expMem.id },
-              data: { balance: 0 },
-            });
-          }
-        }
-      }
-
-      // 3. Create Membership
-      const note = isRenewal
-        ? `${plan.name} (Renewed)`
-        : plan.name;
-
-      const newMembership = await tx.membership.create({
-        data: {
-          customerId,
-          amount: plan.amount,
-          initialValue: totalNewBalance,
-          balance: totalNewBalance,
-          startDate,
-          endDate,
-          isActive: true,
-          note,
-        },
-        include: {
-          customer: {
-            select: { id: true, name: true, phone: true, email: true },
-          },
-        },
-      });
-
-      // 4. Create CREDIT Transaction
-      const txNote = isRenewal
-        ? `Membership renewed with ${plan.name}. Paid ₹${plan.amount} for ₹${plan.benefitValue} benefit${carryForwardBalance > 0 ? ` + ₹${carryForwardBalance} rolled-over unspent balance` : ''
-        }.`
-        : `Membership joined with ${plan.name}. Paid ₹${plan.amount} for ₹${plan.benefitValue} benefit value.`;
-
-      await tx.membershipTransaction.create({
-        data: {
-          membershipId: newMembership.id,
-          type: 'CREDIT',
-          amount: totalNewBalance,
-          balanceBefore: 0,
-          balanceAfter: totalNewBalance,
-          note: txNote,
-        },
-      });
-
-      return { newMembership, updatedPayment };
-    });
-
-    const updatedSummary = await getCustomerMembershipSummary(customerId);
 
     res.status(201).json(
       new AppResponse(
@@ -662,7 +538,7 @@ export const verifyAndActivateMembership = async (req: Request, res: Response): 
         {
           membership: result.newMembership,
           payment: result.updatedPayment,
-          summary: updatedSummary,
+          summary: result.summary,
         },
         201
       )

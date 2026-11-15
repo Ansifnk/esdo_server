@@ -7,10 +7,10 @@ import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable, isSlotInPast } from '../staff/controller';
-import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
+import { deductCustomerMembershipBalance, getCustomerMembershipSummary, activateMembershipPayment } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
-import { RewardTxType } from '../../generated/prisma/enums';
+import { RewardTxType, PaymentMode } from '../../generated/prisma/enums';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
 
 // Initialize Razorpay client instance
@@ -100,7 +100,8 @@ export async function createBookingAndClearCart(
   payment: any,
   pointsToUse: number = 0,
   membershipToUse: number = 0,
-  isMembershipPayment: boolean = false
+  isMembershipPayment: boolean = false,
+  paymentModeOverride?: PaymentMode
 ) {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
@@ -233,6 +234,9 @@ export async function createBookingAndClearCart(
         saloonId,
         status: 'CONFIRMED',
         paymentStatus: 'SUCCESS',
+        paymentMode: isMembershipPayment
+          ? PaymentMode.MEMBERSHIP
+          : (paymentModeOverride || PaymentMode.UPI),
         subtotal: bookingSubtotal,
         discount: finalDiscount,
         totalAmount,
@@ -492,6 +496,7 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
       razorpayPaymentId,
       razorpaySignature,
       pointsToUse = 0,
+      paymentMode,
     } = req.body;
 
     if (!razorpayOrderId || !razorpayPaymentId) {
@@ -500,10 +505,40 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
 
     const payment = await prisma.payment.findUnique({
       where: { razorpayOrderId },
+      include: {
+        booking: {
+          include: {
+            items: {
+              include: {
+                service: true,
+                package: {
+                  include: {
+                    services: true,
+                  },
+                },
+                staff: true,
+              },
+            },
+            customer: true,
+            saloon: true,
+          },
+        },
+      },
     });
 
     if (!payment) {
       throw new AppError('Payment record not found', 404);
+    }
+
+    // If webhook already processed and created booking (Idempotency)
+    if (payment.status === 'SUCCESS' && payment.booking) {
+      res.json(
+        new AppResponse('Payment verified and booking created successfully', {
+          booking: payment.booking,
+          payment,
+        })
+      );
+      return;
     }
 
     // Signature verification
@@ -540,7 +575,8 @@ export const verifyAndCreateBooking = async (req: Request, res: Response): Promi
       updatedPayment,
       pointsToUse,
       0,
-      false
+      false,
+      paymentMode
     );
 
     res.json(
@@ -677,49 +713,163 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
 /**
  * POST /api/payment/webhook
  * Razorpay Webhook Handler
+ * Supports:
+ *  - payment.captured
+ *  - order.paid
+ *  - payment.failed
+ *  - refund.created / refund.processed
+ * Handles both Booking payments and Membership purchases idempotently.
  */
 export const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
     const webhookSignature = req.headers['x-razorpay-signature'] as string;
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-    if (RAZORPAY_WEBHOOK_SECRET && webhookSignature) {
-      const expectedSignature = crypto
-        .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
-        .update(rawBody)
-        .digest('hex');
+    if (!webhookSignature) {
+      console.warn('[Razorpay Webhook] Missing x-razorpay-signature header');
+      res.status(400).json({ error: 'Missing x-razorpay-signature header' });
+      return;
+    }
 
-      if (expectedSignature !== webhookSignature) {
-        console.warn('Webhook signature verification failed');
+    const rawBody = (req as any).rawBody
+      ? (req as any).rawBody.toString('utf8')
+      : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+
+    try {
+      const isValid = Razorpay.validateWebhookSignature(
+        rawBody,
+        webhookSignature,
+        RAZORPAY_WEBHOOK_SECRET
+      );
+
+      if (!isValid) {
+        console.warn('[Razorpay Webhook] Signature verification failed');
         res.status(400).json({ error: 'Invalid webhook signature' });
         return;
       }
+    } catch (sigErr: any) {
+      console.warn('[Razorpay Webhook] Signature validation error:', sigErr.message);
+      res.status(400).json({ error: 'Invalid webhook signature' });
+      return;
     }
 
     const payload = req.body;
     const event = payload?.event;
+    console.log(`[Razorpay Webhook] Processing event: ${event}`);
 
     if (event === 'payment.captured' || event === 'order.paid') {
       const paymentEntity = payload.payload?.payment?.entity;
-      const razorpayOrderId = paymentEntity?.order_id || payload.payload?.order?.entity?.id;
+      const orderEntity = payload.payload?.order?.entity;
+
+      const razorpayOrderId = paymentEntity?.order_id || orderEntity?.id;
       const razorpayPaymentId = paymentEntity?.id;
 
-      if (razorpayOrderId) {
-        const payment = await prisma.payment.findUnique({
-          where: { razorpayOrderId },
-        });
+      if (!razorpayOrderId) {
+        console.warn('[Razorpay Webhook] Order ID missing from payload');
+        res.status(200).json({ status: 'ok', message: 'No order ID in payload' });
+        return;
+      }
 
-        if (payment && payment.status !== 'SUCCESS') {
-          const updatedPayment = await prisma.payment.update({
+      // Fetch payment record from database
+      const payment = await prisma.payment.findUnique({
+        where: { razorpayOrderId },
+        include: {
+          booking: true,
+          customer: true,
+        },
+      });
+
+      if (!payment) {
+        console.warn(`[Razorpay Webhook] Payment record not found for orderId: ${razorpayOrderId}`);
+        res.status(200).json({ status: 'ok', message: 'Payment record not found' });
+        return;
+      }
+
+      // Extract notes, with fallback to fetching order details from Razorpay if notes are empty
+      let notes: Record<string, any> = paymentEntity?.notes || orderEntity?.notes || {};
+      if (!notes || Object.keys(notes).length === 0) {
+        try {
+          const fetchedOrder: any = await razorpay.orders.fetch(razorpayOrderId);
+          notes = fetchedOrder.notes || {};
+        } catch (fetchErr: any) {
+          console.warn('[Razorpay Webhook] Could not fetch order notes from Razorpay:', fetchErr.message);
+        }
+      }
+
+      // Map payment method to PaymentMode enum
+      let paymentMode: PaymentMode = PaymentMode.UPI;
+      const method = (paymentEntity?.method || '').toLowerCase();
+      if (method === 'card') {
+        paymentMode = PaymentMode.CARD;
+      } else if (method === 'netbanking') {
+        paymentMode = PaymentMode.BANK_TRANSFER;
+      } else if (method === 'upi') {
+        paymentMode = PaymentMode.UPI;
+      }
+
+      // 1. Membership order detection
+      const planId = notes.planId;
+      if (planId) {
+        if (payment.status !== 'SUCCESS') {
+          const isRenewal = notes.isRenewal === 'true' || notes.isRenewal === true;
+          try {
+            await activateMembershipPayment({
+              customerId: payment.customerId,
+              planId: String(planId),
+              isRenewal,
+              razorpayOrderId,
+              razorpayPaymentId: razorpayPaymentId || payment.razorpayPaymentId || undefined,
+              razorpaySignature: webhookSignature,
+              skipSignatureCheck: true,
+            });
+            console.log(`[Razorpay Webhook] Successfully activated membership for customer ${payment.customerId}`);
+          } catch (memErr: any) {
+            console.error('[Razorpay Webhook] Error activating membership:', memErr.message || memErr);
+          }
+        } else {
+          console.log(`[Razorpay Webhook] Membership payment for order ${razorpayOrderId} already marked SUCCESS`);
+        }
+      } else {
+        // 2. Service / Package Booking order
+        let updatedPayment = payment;
+        if (payment.status !== 'SUCCESS') {
+          updatedPayment = await prisma.payment.update({
             where: { id: payment.id },
             data: {
               status: 'SUCCESS',
               razorpayPaymentId: razorpayPaymentId || payment.razorpayPaymentId,
+              razorpaySignature: webhookSignature,
+            },
+            include: {
+              booking: true,
+              customer: true,
             },
           });
+        }
 
-          // Automatically create booking if client didn't complete verification yet
-          await createBookingAndClearCart(payment.customerId, updatedPayment, 0);
+        // Only create booking if one does not exist for this payment
+        if (!updatedPayment.booking) {
+          const existingBooking = await prisma.booking.findUnique({
+            where: { paymentId: payment.id },
+          });
+
+          if (!existingBooking) {
+            const pointsToUse = Number(notes.pointsToUse) || 0;
+            try {
+              await createBookingAndClearCart(
+                payment.customerId,
+                updatedPayment,
+                pointsToUse,
+                0,
+                false,
+                paymentMode
+              );
+              console.log(`[Razorpay Webhook] Successfully created booking for payment ${payment.id}`);
+            } catch (bookingErr: any) {
+              console.error('[Razorpay Webhook] Booking auto-creation notice:', bookingErr.message || bookingErr);
+            }
+          } else {
+            console.log(`[Razorpay Webhook] Booking already exists for payment ${payment.id}`);
+          }
         }
       }
     } else if (event === 'payment.failed') {
@@ -727,15 +877,56 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
       const razorpayOrderId = paymentEntity?.order_id;
       if (razorpayOrderId) {
         await prisma.payment.updateMany({
-          where: { razorpayOrderId },
-          data: { status: 'FAILED' },
+          where: {
+            razorpayOrderId,
+            status: 'PENDING',
+          },
+          data: {
+            status: 'FAILED',
+            razorpayPaymentId: paymentEntity?.id || undefined,
+          },
         });
+        console.log(`[Razorpay Webhook] Marked payment as FAILED for order ${razorpayOrderId}`);
       }
+    } else if (event === 'refund.created' || event === 'refund.processed') {
+      const refundEntity = payload.payload?.refund?.entity;
+      const paymentEntity = payload.payload?.payment?.entity;
+      const razorpayPaymentId = refundEntity?.payment_id || paymentEntity?.id;
+      const razorpayOrderId = paymentEntity?.order_id;
+
+      if (razorpayOrderId || razorpayPaymentId) {
+        const payment = await prisma.payment.findFirst({
+          where: {
+            OR: [
+              razorpayOrderId ? { razorpayOrderId } : undefined,
+              razorpayPaymentId ? { razorpayPaymentId } : undefined,
+            ].filter(Boolean) as any,
+          },
+          include: { booking: true },
+        });
+
+        if (payment) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: 'REFUNDED' },
+          });
+
+          if (payment.booking) {
+            await prisma.booking.update({
+              where: { id: payment.booking.id },
+              data: { paymentStatus: 'REFUNDED' },
+            });
+          }
+          console.log(`[Razorpay Webhook] Marked payment & booking as REFUNDED for order ${payment.razorpayOrderId}`);
+        }
+      }
+    } else {
+      console.log(`[Razorpay Webhook] Unhandled event received: ${event}`);
     }
 
     res.status(200).json({ status: 'ok' });
   } catch (error: any) {
-    console.error('Webhook processing error:', error);
+    console.error('[Razorpay Webhook] Unexpected error:', error);
     res.status(500).json({ error: 'Internal server error processing webhook' });
   }
 };
