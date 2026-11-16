@@ -18,6 +18,8 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
     await body('slots').optional().isArray().withMessage('slots must be an array').run(req);
     await body('joiningDate').optional().isString().withMessage('joiningDate must be a string').run(req);
     await body('experience').optional({ nullable: true }).isNumeric().withMessage('experience must be a number').run(req);
+    await body('happyClients').optional({ nullable: true }).isNumeric().withMessage('happyClients must be a number').run(req);
+    await body('satisfaction').optional({ nullable: true }).isNumeric().withMessage('satisfaction must be a number').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
@@ -40,6 +42,8 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       slots = [],
       joiningDate = '',
       experience = null,
+      happyClients = null,
+      satisfaction = null,
       image = '',
       isActive = true,
       serviceGender = null,
@@ -53,10 +57,14 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       serviceGender = null;
       stylistCategory = null;
       experience = null;
+      happyClients = null;
+      satisfaction = null;
     } else {
       serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
       stylistCategory = stylistCategory && Object.values(StylistCategory).includes(stylistCategory) ? stylistCategory : null;
       experience = experience !== undefined && experience !== null && experience !== '' ? Number(experience) : 0;
+      happyClients = happyClients !== undefined && happyClients !== null && happyClients !== '' ? Number(happyClients) : 0;
+      satisfaction = satisfaction !== undefined && satisfaction !== null && satisfaction !== '' ? Number(satisfaction) : 0;
     }
 
     const user = req.user;
@@ -98,6 +106,8 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
         languages,
         joiningDate,
         experience,
+        happyClients,
+        satisfaction,
         image,
         isActive,
         serviceGender,
@@ -226,6 +236,7 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
         ratingCount: count,
         rating: avg,
         reviewsCount: count,
+        satisfactionRate: s.satisfaction !== null && s.satisfaction !== undefined ? `${s.satisfaction}%` : null,
       };
     });
 
@@ -287,6 +298,7 @@ export const getStaffById = async (req: Request, res: Response): Promise<void> =
       ratingCount: count,
       rating: avg,
       reviewsCount: count,
+      satisfactionRate: staff.satisfaction !== null && staff.satisfaction !== undefined ? `${staff.satisfaction}%` : null,
     };
 
     res.json(new AppResponse('Staff member retrieved successfully', formattedStaff, 200));
@@ -307,6 +319,8 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     await body('slots').optional().isArray().withMessage('slots must be an array').run(req);
     await body('joiningDate').optional().isString().withMessage('joiningDate must be a string').run(req);
     await body('experience').optional({ nullable: true }).isNumeric().withMessage('experience must be a number').run(req);
+    await body('happyClients').optional({ nullable: true }).isNumeric().withMessage('happyClients must be a number').run(req);
+    await body('satisfaction').optional({ nullable: true }).isNumeric().withMessage('satisfaction must be a number').run(req);
     await body('image').optional().isString().withMessage('Image must be a string').run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('serviceGender').optional({ nullable: true }).isIn([...Object.values(ServiceGender), null, '']).withMessage('Invalid serviceGender').run(req);
@@ -320,7 +334,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     }
 
     const id = req.params.id as string;
-    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, experience, image, isActive, serviceGender, stylistCategory, type } = req.body;
+    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, experience, happyClients, satisfaction, image, isActive, serviceGender, stylistCategory, type } = req.body;
 
     const user = req.user;
 
@@ -371,6 +385,8 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
       serviceGender = null;
       stylistCategory = null;
       experience = null;
+      happyClients = null;
+      satisfaction = null;
     } else {
       if (serviceGender !== undefined) {
         serviceGender = serviceGender && Object.values(ServiceGender).includes(serviceGender) ? serviceGender : null;
@@ -380,6 +396,12 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
       }
       if (experience !== undefined && experience !== null && experience !== '') {
         experience = Number(experience);
+      }
+      if (happyClients !== undefined && happyClients !== null && happyClients !== '') {
+        happyClients = Number(happyClients);
+      }
+      if (satisfaction !== undefined && satisfaction !== null && satisfaction !== '') {
+        satisfaction = Number(satisfaction);
       }
     }
 
@@ -394,6 +416,12 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
           joiningDate: joiningDate ?? existingStaff.joiningDate,
           experience: isStylist
             ? (experience !== undefined ? (experience !== null && experience !== '' ? Number(experience) : 0) : existingStaff.experience)
+            : null,
+          happyClients: isStylist
+            ? (happyClients !== undefined ? (happyClients !== null && happyClients !== '' ? Number(happyClients) : 0) : existingStaff.happyClients)
+            : null,
+          satisfaction: isStylist
+            ? (satisfaction !== undefined ? (satisfaction !== null && satisfaction !== '' ? Number(satisfaction) : 0) : existingStaff.satisfaction)
             : null,
           saloonId: saloonId ?? existingStaff.saloonId,
           image: image ?? existingStaff.image,

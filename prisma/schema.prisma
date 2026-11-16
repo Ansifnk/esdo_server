@@ -150,6 +150,13 @@ enum StylistCategory {
   SILVER
 }
 
+model StaffLanguage {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Staff {
   id              String            @id @default(uuid())
   name            String
@@ -162,6 +169,8 @@ model Staff {
   stylistCategory StylistCategory?
   joiningDate     String            @default("")
   experience      Float?            @default(0)
+  happyClients    Int?              @default(0)
+  satisfaction    Float?            @default(0)
   saloonId        String
   saloon          Saloon            @relation(fields: [saloonId], references: [id], onDelete: Cascade)
   categories      Category[]

@@ -8,6 +8,7 @@ import categoryRouter from './api/category';
 import subCategoryRouter from './api/sub-category';
 import fileRouter from './api/file';
 import staffRouter from './api/staff';
+import staffLanguageRouter from './api/staff-language';
 import serviceRouter from './api/service';
 import packageRouter from './api/package';
 import adminsRouter from './api/admins';
@@ -63,6 +64,7 @@ app.use('/api/sub-categories', subCategoryRouter);
 app.use('/api/files', fileRouter);
 app.use('/api/staff', staffRouter); //todo:remove this after making to staffs in admin side
 app.use('/api/staffs', staffRouter);
+app.use('/api/staff-languages', staffLanguageRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/packages', packageRouter);
 app.use('/api/admins', adminsRouter);
