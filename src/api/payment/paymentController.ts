@@ -6,7 +6,14 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
-import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable, isSlotInPast } from '../staff/controller';
+import {
+  extractDateMatchKey,
+  normalizeTimeSlot,
+  isStaffSlotAvailable,
+  isSlotInPast,
+  getItemDuration,
+  doSlotRangesOverlap,
+} from '../staff/controller';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary, activateMembershipPayment } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
@@ -360,7 +367,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       where: { customerId },
       include: {
         items: {
-          include: { service: true, package: true },
+          include: {
+            service: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
+          },
         },
       },
     });
@@ -372,19 +386,23 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     // Verify none of the items in the cart are unavailable or already booked
     for (let i = 0; i < cart.items.length; i++) {
       const itemA = cart.items[i];
+      const durationA = getItemDuration(itemA);
+
       for (let j = i + 1; j < cart.items.length; j++) {
         const itemB = cart.items[j];
         if (
           itemA.staffId &&
           itemB.staffId &&
           itemA.staffId === itemB.staffId &&
-          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '') &&
-          normalizeTimeSlot(itemA.timeSlot || '') === normalizeTimeSlot(itemB.timeSlot || '')
+          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '')
         ) {
-          throw new AppError(
-            `A stylist cannot be assigned to multiple services at the same time slot (${itemA.timeSlot}). Please choose different stylists or time slots.`,
-            400
-          );
+          const durationB = getItemDuration(itemB);
+          if (doSlotRangesOverlap(itemA.timeSlot || '', durationA, itemB.timeSlot || '', durationB)) {
+            throw new AppError(
+              `A stylist cannot be assigned to multiple services at overlapping time slots (${itemA.timeSlot} - ${itemB.timeSlot}). Please choose different stylists or time slots.`,
+              400
+            );
+          }
         }
       }
 
@@ -396,7 +414,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       }
 
       if (itemA.staffId && itemA.date && itemA.timeSlot) {
-        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot);
+        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot, durationA);
         if (!slotCheck.available) {
           throw new AppError(
             slotCheck.reason ||
@@ -613,7 +631,14 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
       where: { customerId },
       include: {
         items: {
-          include: { service: true, package: true },
+          include: {
+            service: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
+          },
         },
       },
     });
@@ -625,19 +650,23 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
     // Check slot availability and conflicts
     for (let i = 0; i < cart.items.length; i++) {
       const itemA = cart.items[i];
+      const durationA = getItemDuration(itemA);
+
       for (let j = i + 1; j < cart.items.length; j++) {
         const itemB = cart.items[j];
         if (
           itemA.staffId &&
           itemB.staffId &&
           itemA.staffId === itemB.staffId &&
-          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '') &&
-          normalizeTimeSlot(itemA.timeSlot || '') === normalizeTimeSlot(itemB.timeSlot || '')
+          extractDateMatchKey(itemA.date || '') === extractDateMatchKey(itemB.date || '')
         ) {
-          throw new AppError(
-            `A stylist cannot be assigned to multiple services at the same time slot (${itemA.timeSlot}). Please choose different stylists or time slots.`,
-            400
-          );
+          const durationB = getItemDuration(itemB);
+          if (doSlotRangesOverlap(itemA.timeSlot || '', durationA, itemB.timeSlot || '', durationB)) {
+            throw new AppError(
+              `A stylist cannot be assigned to multiple services at overlapping time slots (${itemA.timeSlot} - ${itemB.timeSlot}). Please choose different stylists or time slots.`,
+              400
+            );
+          }
         }
       }
 
@@ -649,7 +678,7 @@ export const payWithMembership = async (req: Request, res: Response): Promise<vo
       }
 
       if (itemA.staffId && itemA.date && itemA.timeSlot) {
-        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot);
+        const slotCheck = await isStaffSlotAvailable(itemA.staffId, itemA.date, itemA.timeSlot, durationA);
         if (!slotCheck.available) {
           throw new AppError(
             slotCheck.reason ||

@@ -587,6 +587,165 @@ export function normalizeTimeSlot(slotStr: string): string {
 }
 
 /**
+ * Standard duration of each time slot section in minutes (30 minutes)
+ */
+export const SECTION_DURATION_MINUTES = 30;
+
+/**
+ * Helper to parse a time slot string ("HH:MM" or "HH:MM AM/PM") into minutes from start of day (0-1439).
+ */
+export function timeSlotToMinutes(slotStr: string): number | null {
+  if (!slotStr) return null;
+  const trimmed = slotStr.trim().toUpperCase();
+
+  // Try 24-hr format "HH:MM"
+  if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+    const [hStr, mStr] = trimmed.split(':');
+    const h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10);
+    if (isNaN(h) || isNaN(m)) return null;
+    return h * 60 + m;
+  }
+
+  // Try 12-hr format "HH:MM AM/PM" or "H:MM AM/PM"
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (match) {
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const ampm = match[3];
+    if (isNaN(h) || isNaN(m)) return null;
+    if (ampm === 'PM' && h !== 12) {
+      h += 12;
+    } else if (ampm === 'AM' && h === 12) {
+      h = 0;
+    }
+    return h * 60 + m;
+  }
+
+  return null;
+}
+
+/**
+ * Helper to convert minutes from midnight into normalized standard time slot "HH:MM AM/PM".
+ */
+export function minutesToTimeSlot(totalMinutes: number): string {
+  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
+  const h24 = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+/**
+ * Calculates number of 30-minute sections required for a given service duration in minutes.
+ * E.g.:
+ *   <= 30 mins -> 1 section (30 mins)
+ *   45 mins    -> 2 sections (1 hr)
+ *   60 mins    -> 2 sections (1 hr)
+ *   75 mins    -> 3 sections (1.5 hrs)
+ *   90 mins    -> 3 sections (1.5 hrs)
+ */
+export function getSectionsCountForDuration(durationMinutes?: number | null): number {
+  if (!durationMinutes || typeof durationMinutes !== 'number' || durationMinutes <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(durationMinutes / SECTION_DURATION_MINUTES));
+}
+
+/**
+ * Returns all normalized 30-minute time slots occupied by a service starting at startSlot
+ * and lasting for durationMinutes.
+ */
+export function getTimeSlotsForDuration(startSlot: string, durationMinutes?: number | null): string[] {
+  if (!startSlot) return [];
+  const startMins = timeSlotToMinutes(startSlot);
+  if (startMins === null) {
+    const norm = normalizeTimeSlot(startSlot);
+    return norm ? [norm] : [];
+  }
+
+  const sectionsCount = getSectionsCountForDuration(durationMinutes);
+  const slots: string[] = [];
+  for (let i = 0; i < sectionsCount; i++) {
+    const slotMins = startMins + i * SECTION_DURATION_MINUTES;
+    slots.push(minutesToTimeSlot(slotMins));
+  }
+  return slots;
+}
+
+/**
+ * Helper to check whether two service time slot intervals overlap.
+ */
+export function doSlotRangesOverlap(
+  startSlotA: string,
+  durationA: number | null | undefined,
+  startSlotB: string,
+  durationB: number | null | undefined
+): boolean {
+  if (!startSlotA || !startSlotB) return false;
+  const slotsA = getTimeSlotsForDuration(startSlotA, durationA);
+  const slotsB = getTimeSlotsForDuration(startSlotB, durationB);
+  const setA = new Set(slotsA);
+  return slotsB.some((s) => setA.has(s));
+}
+
+/**
+ * Helper to get the duration in minutes for an item (service or package).
+ */
+export function getItemDuration(item: {
+  service?: { duration?: number | null } | null;
+  package?: { services?: Array<{ duration?: number | null }> } | null;
+  duration?: number | null;
+}): number {
+  if (typeof item.duration === 'number' && item.duration > 0) {
+    return item.duration;
+  }
+  if (item.service && typeof item.service.duration === 'number' && item.service.duration > 0) {
+    return item.service.duration;
+  }
+  if (item.package && Array.isArray(item.package.services)) {
+    const total = item.package.services.reduce((acc, s) => acc + (s.duration || 0), 0);
+    if (total > 0) return total;
+  }
+  return 30; // default 30 mins
+}
+
+/**
+ * Helper to look up duration in minutes for a serviceId or packageId.
+ */
+export async function resolveServiceOrPackageDuration(
+  serviceId?: string | null,
+  packageId?: string | null
+): Promise<number> {
+  if (serviceId) {
+    const s = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { duration: true },
+    });
+    if (s && typeof s.duration === 'number' && s.duration > 0) {
+      return s.duration;
+    }
+  }
+  if (packageId) {
+    const p = await prisma.package.findUnique({
+      where: { id: packageId },
+      select: {
+        services: {
+          select: { duration: true },
+        },
+      },
+    });
+    if (p && Array.isArray(p.services)) {
+      const total = p.services.reduce((acc, s) => acc + (s.duration || 0), 0);
+      if (total > 0) return total;
+    }
+  }
+  return 30;
+}
+
+/**
  * Checks whether a date or a time slot on today's date has already passed.
  */
 export function isSlotInPast(dateStr?: string | null, timeSlotStr?: string | null): boolean {
@@ -612,33 +771,22 @@ export function isSlotInPast(dateStr?: string | null, timeSlotStr?: string | nul
   // Same date (today): compare slot minutes
   if (!timeSlotStr) return false;
 
-  const match = timeSlotStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) return false;
+  const slotMinutes = timeSlotToMinutes(timeSlotStr);
+  if (slotMinutes === null) return false;
 
-  let hours = parseInt(match[1], 10);
-  const minutes = parseInt(match[2], 10);
-  const meridiem = match[3].toUpperCase();
-
-  if (meridiem === 'PM' && hours !== 12) {
-    hours += 12;
-  } else if (meridiem === 'AM' && hours === 12) {
-    hours = 0;
-  }
-
-  const slotMinutes = hours * 60 + minutes;
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
   return slotMinutes <= currentMinutes;
 }
 
 /**
- * Helper to check whether a time slot is available for a given staff member on a specific date.
+ * Helper to check whether a time slot (and its full service duration) is available for a given staff member on a specific date.
  * Validates against both staff working schedule (slots configured/removed in admin) and active bookings.
  */
 export async function isStaffSlotAvailable(
   staffId: string,
   dateStr: string,
-  timeSlotStr: string
+  timeSlotStr: string,
+  durationMinutes?: number | null
 ): Promise<{ available: boolean; reason?: string }> {
   if (!staffId || !dateStr || !timeSlotStr) {
     return { available: true };
@@ -652,7 +800,7 @@ export async function isStaffSlotAvailable(
   }
 
   const targetDateKey = extractDateMatchKey(dateStr);
-  const targetSlotNorm = normalizeTimeSlot(timeSlotStr);
+  const requiredSlots = getTimeSlotsForDuration(timeSlotStr, durationMinutes);
 
   const staff = await prisma.staff.findUnique({
     where: { id: staffId },
@@ -675,11 +823,19 @@ export async function isStaffSlotAvailable(
       }
       if (Array.isArray(schedule.slots)) {
         const allowedNorm = schedule.slots.map(normalizeTimeSlot);
-        if (allowedNorm.length === 0 || !allowedNorm.includes(targetSlotNorm)) {
+        if (allowedNorm.length === 0) {
           return {
             available: false,
-            reason: `The time slot "${timeSlotStr}" is not available in ${staff.name}'s schedule. Please choose another slot.`,
+            reason: `Stylist ${staff.name} has no available working slots on this date. Please choose another date or stylist.`,
           };
+        }
+        for (const reqSlot of requiredSlots) {
+          if (!allowedNorm.includes(reqSlot)) {
+            return {
+              available: false,
+              reason: `The time slot "${reqSlot}" is not available in ${staff.name}'s schedule. Please choose another slot.`,
+            };
+          }
         }
       }
     }
@@ -696,35 +852,50 @@ export async function isStaffSlotAvailable(
     select: {
       date: true,
       timeSlot: true,
+      service: {
+        select: { duration: true },
+      },
+      package: {
+        select: {
+          services: {
+            select: { duration: true },
+          },
+        },
+      },
     },
   });
 
-  const isConflict = existingBookings.some((item) => {
-    return (
-      extractDateMatchKey(item.date || '') === targetDateKey &&
-      normalizeTimeSlot(item.timeSlot || '') === targetSlotNorm
-    );
-  });
+  const requiredSet = new Set(requiredSlots);
 
-  if (isConflict) {
-    return {
-      available: false,
-      reason: `The time slot "${timeSlotStr}" is already booked for ${staff.name}. Please choose another time slot.`,
-    };
+  for (const item of existingBookings) {
+    if (extractDateMatchKey(item.date || '') === targetDateKey && item.timeSlot) {
+      const bookedDuration = getItemDuration(item);
+      const bookedSlots = getTimeSlotsForDuration(item.timeSlot, bookedDuration);
+      for (const bSlot of bookedSlots) {
+        if (requiredSet.has(bSlot)) {
+          return {
+            available: false,
+            reason: `The time slot "${bSlot}" is already booked for ${staff.name}. Please choose another time slot.`,
+          };
+        }
+      }
+    }
   }
 
   return { available: true };
 }
 
 /**
- * GET /api/staffs/:id/booked-slots?date=...
+ * GET /api/staffs/:id/booked-slots?date=...&serviceId=...&packageId=...&duration=...
  * Returns unavailable / already booked slots for a specific stylist on a date.
  * If schedule exists for that date, any slot removed from the schedule by the admin is returned in blockedSlots.
+ * If a service is booked, blocks the time according to that service time (in 30-min sections).
+ * If duration or serviceId/packageId is provided, also marks candidate slots that cannot accommodate the duration.
  */
 export const getStaffBookedSlots = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const { date } = req.query;
+    const { date, serviceId, packageId, duration } = req.query;
 
     const staff = await prisma.staff.findUnique({
       where: { id },
@@ -750,12 +921,27 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
         id: true,
         date: true,
         timeSlot: true,
+        service: {
+          select: {
+            duration: true,
+          },
+        },
+        package: {
+          select: {
+            services: {
+              select: {
+                duration: true,
+              },
+            },
+          },
+        },
       },
     });
 
     const allBooked = bookingItems.map((b) => ({
       date: b.date || '',
       timeSlot: b.timeSlot || '',
+      duration: getItemDuration(b),
       source: 'booking',
     }));
 
@@ -794,12 +980,17 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
         }
       }
 
-      // 2. Block already booked slots
+      // 2. Block already booked slots according to each service duration (in 30 min sections)
       for (const item of allBooked) {
         if (!targetDateKey || extractDateMatchKey(item.date) === targetDateKey) {
-          const norm = normalizeTimeSlot(item.timeSlot);
-          if (norm && !blockedSlotsForDate.includes(norm)) {
-            blockedSlotsForDate.push(norm);
+          if (item.timeSlot) {
+            const bookedSlots = getTimeSlotsForDuration(item.timeSlot, item.duration);
+            for (const bSlot of bookedSlots) {
+              const norm = normalizeTimeSlot(bSlot);
+              if (norm && !blockedSlotsForDate.includes(norm)) {
+                blockedSlotsForDate.push(norm);
+              }
+            }
           }
         }
       }
@@ -810,6 +1001,34 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
           if (isSlotInPast(date ? String(date) : '', slot)) {
             const norm = normalizeTimeSlot(slot);
             if (norm && !blockedSlotsForDate.includes(norm)) {
+              blockedSlotsForDate.push(norm);
+            }
+          }
+        }
+      }
+
+      // 4. If duration or serviceId/packageId is provided, also block candidate slots that cannot fit the service duration
+      let requestedDuration = duration ? Number(duration) : 0;
+      if (!requestedDuration && (serviceId || packageId)) {
+        requestedDuration = await resolveServiceOrPackageDuration(
+          serviceId ? String(serviceId) : null,
+          packageId ? String(packageId) : null
+        );
+      }
+
+      if (requestedDuration > 30) {
+        const standardSlotsNorm = ALL_STANDARD_TIME_SLOTS.map(normalizeTimeSlot);
+        for (const slot of ALL_STANDARD_TIME_SLOTS) {
+          const norm = normalizeTimeSlot(slot);
+          if (!blockedSlotsForDate.includes(norm)) {
+            const candidateSlots = getTimeSlotsForDuration(slot, requestedDuration);
+            const cannotFit = candidateSlots.some((reqSlot) => {
+              if (blockedSlotsForDate.includes(reqSlot)) return true;
+              if (scheduleFound && allowedSlotsSet && !allowedSlotsSet.has(reqSlot)) return true;
+              if (!standardSlotsNorm.includes(reqSlot)) return true;
+              return false;
+            });
+            if (cannotFit) {
               blockedSlotsForDate.push(norm);
             }
           }

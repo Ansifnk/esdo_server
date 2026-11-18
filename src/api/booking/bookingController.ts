@@ -8,7 +8,7 @@ import { BookingStatus, PaymentStatus, PaymentMode } from '../../generated/prism
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
-import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey } from '../staff/controller';
+import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
 
 /**
@@ -576,6 +576,8 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       let cleanServiceId: string | null = null;
       let cleanPackageId: string | null = null;
 
+      let itemDuration = 30;
+
       if (hasService) {
         const serviceIdToLookup = item.serviceId.trim();
         const srv = await prisma.service.findUnique({ where: { id: serviceIdToLookup } });
@@ -589,9 +591,15 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         if (price === 0) {
           price = srv.discountPrice > 0 ? srv.discountPrice : srv.price;
         }
+        if (typeof srv.duration === 'number' && srv.duration > 0) {
+          itemDuration = srv.duration;
+        }
       } else if (hasPackage) {
         const packageIdToLookup = item.packageId.trim();
-        const pkg = await prisma.package.findUnique({ where: { id: packageIdToLookup } });
+        const pkg = await prisma.package.findUnique({
+          where: { id: packageIdToLookup },
+          include: { services: true },
+        });
         if (!pkg) {
           throw new AppError(`Package not found for item #${i + 1}`, 404);
         }
@@ -601,6 +609,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         cleanPackageId = packageIdToLookup;
         if (price === 0) {
           price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
+        }
+        const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
+        if (totalPkgDuration > 0) {
+          itemDuration = totalPkgDuration;
         }
       }
 
@@ -629,22 +641,22 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       const rawSlot = (item.timeSlot && typeof item.timeSlot === 'string') ? item.timeSlot.trim() : '';
 
       if (cleanStaffId && rawSlot) {
-        // Intra-booking conflict check
+        // Intra-booking conflict check taking durations into account
         const conflict = processedItems.find(
           (p) =>
             p.staffId === cleanStaffId &&
             extractDateMatchKey(p.date) === extractDateMatchKey(formattedDate) &&
-            normalizeTimeSlot(p.timeSlot) === normalizeTimeSlot(rawSlot)
+            doSlotRangesOverlap(p.timeSlot, p.duration, rawSlot, itemDuration)
         );
         if (conflict) {
           throw new AppError(
-            `Stylist is already assigned to another item at "${rawSlot}" on this date. Please choose a different stylist or time slot.`,
+            `Stylist is already assigned to another service during this time window (${rawSlot}) on this date. Please choose a different stylist or time slot.`,
             400
           );
         }
 
         // Validate against stylist schedule and existing bookings
-        const slotAvailability = await isStaffSlotAvailable(cleanStaffId, formattedDate, rawSlot);
+        const slotAvailability = await isStaffSlotAvailable(cleanStaffId, formattedDate, rawSlot, itemDuration);
         if (!slotAvailability.available) {
           throw new AppError(slotAvailability.reason || `Time slot "${rawSlot}" is not available`, 400);
         }
@@ -657,6 +669,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         staffId: cleanStaffId,
         date: formattedDate,
         timeSlot: rawSlot,
+        duration: itemDuration,
         price,
       });
     }

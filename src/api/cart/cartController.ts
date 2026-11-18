@@ -3,7 +3,14 @@ import { body, validationResult } from 'express-validator';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { extractDateMatchKey, normalizeTimeSlot, isStaffSlotAvailable, isSlotInPast } from '../staff/controller';
+import {
+  extractDateMatchKey,
+  normalizeTimeSlot,
+  isStaffSlotAvailable,
+  isSlotInPast,
+  getItemDuration,
+  doSlotRangesOverlap,
+} from '../staff/controller';
 import { getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { rewardSettingService } from '../rewards/rewardSettingService';
@@ -260,8 +267,34 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       throw new AppError('Cannot book an appointment for a past date or time slot.', 400);
     }
 
+    let price = 0;
+    let itemDuration = 30;
+    if (serviceId) {
+      const service = await prisma.service.findUnique({ where: { id: serviceId } });
+      if (!service) {
+        throw new AppError('Service not found', 404);
+      }
+      price = service.discountPrice > 0 ? service.discountPrice : service.price;
+      if (typeof service.duration === 'number' && service.duration > 0) {
+        itemDuration = service.duration;
+      }
+    } else if (packageId) {
+      const pkg = await prisma.package.findUnique({
+        where: { id: packageId },
+        include: { services: true },
+      });
+      if (!pkg) {
+        throw new AppError('Package not found', 404);
+      }
+      price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
+      const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
+      if (totalPkgDuration > 0) {
+        itemDuration = totalPkgDuration;
+      }
+    }
+
     if (staffId && date && timeSlot) {
-      const slotCheck = await isStaffSlotAvailable(staffId, date, timeSlot);
+      const slotCheck = await isStaffSlotAvailable(staffId, date, timeSlot, itemDuration);
       if (!slotCheck.available) {
         throw new AppError(
           slotCheck.reason || 'This time slot is not available for this stylist. Please choose another time slot.',
@@ -270,47 +303,54 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    let price = 0;
-    if (serviceId) {
-      const service = await prisma.service.findUnique({ where: { id: serviceId } });
-      if (!service) {
-        throw new AppError('Service not found', 404);
-      }
-      price = service.discountPrice > 0 ? service.discountPrice : service.price;
-    } else if (packageId) {
-      const pkg = await prisma.package.findUnique({ where: { id: packageId } });
-      if (!pkg) {
-        throw new AppError('Package not found', 404);
-      }
-      price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
-    }
-
     let cart = await prisma.cart.findUnique({
       where: { customerId },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            service: true,
+            package: {
+              include: {
+                services: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!cart) {
       cart = await prisma.cart.create({
         data: { customerId },
-        include: { items: true },
+        include: {
+          items: {
+            include: {
+              service: true,
+              package: {
+                include: {
+                  services: true,
+                },
+              },
+            },
+          },
+        },
       });
     }
 
     if (staffId && date && timeSlot) {
       const targetDateKey = extractDateMatchKey(date);
-      const targetSlotNorm = normalizeTimeSlot(timeSlot);
 
-      const existingStaffItem = cart.items?.find(
-        (it) =>
-          it.staffId === staffId &&
-          extractDateMatchKey(it.date || '') === targetDateKey &&
-          normalizeTimeSlot(it.timeSlot || '') === targetSlotNorm
-      );
+      const existingConflict = cart.items?.find((it) => {
+        if (it.staffId !== staffId || extractDateMatchKey(it.date || '') !== targetDateKey) {
+          return false;
+        }
+        const existingDuration = getItemDuration(it);
+        return doSlotRangesOverlap(timeSlot, itemDuration, it.timeSlot || '', existingDuration);
+      });
 
-      if (existingStaffItem) {
+      if (existingConflict) {
         throw new AppError(
-          'This stylist is already selected in your cart for this time slot. A stylist can only serve one client at a time.',
+          `This stylist is already selected in your cart for an overlapping time window (${existingConflict.timeSlot}). A stylist can only serve one client at a time.`,
           400
         );
       }
