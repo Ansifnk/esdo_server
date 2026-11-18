@@ -546,7 +546,16 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
 
     // Process, validate & calculate prices for items
     let subtotal = 0;
-    const processedItems: any[] = [];
+    interface AdminProcessedItem {
+      serviceId: string | null;
+      packageId: string | null;
+      staffId: string | null;
+      date: string;
+      timeSlot: string;
+      duration: number;
+      price: number;
+    }
+    const processedItems: AdminProcessedItem[] = [];
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -735,7 +744,14 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           totalAmount,
           couponCode: sanitizedCouponCode,
           items: {
-            create: processedItems,
+            create: processedItems.map((item) => ({
+              serviceId: item.serviceId,
+              packageId: item.packageId,
+              staffId: item.staffId,
+              date: item.date,
+              timeSlot: item.timeSlot,
+              price: item.price,
+            })),
           },
         },
         include: {
