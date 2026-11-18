@@ -40,6 +40,7 @@ model Customer {
   id                 String              @id @default(uuid())
   phone              String?             @unique
   email              String?             @unique
+  gender             Gender?
   birthDate          DateTime?
   address            String?
   password           String?
@@ -90,6 +91,12 @@ enum Role {
   ADMIN
   SUPER_ADMIN
   CUSTOMER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
 }
 
 model Category {

@@ -234,6 +234,7 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
               name: true,
               phone: true,
               email: true,
+              gender: true,
             },
           },
           saloon: true,

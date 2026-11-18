@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
-import { Role } from '../../generated/prisma/enums';
+import { Role, Gender } from '../../generated/prisma/enums';
 import {
   createAccessToken,
   createRefreshToken,
@@ -12,10 +12,16 @@ import {
 
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, gender } = req.body;
 
     if (!email || !password || !name) {
       res.json(new AppResponse('Email, password, and name are required', {}, 400));
+      return;
+    }
+
+    const normalizedGender = gender ? String(gender).toUpperCase().trim() : null;
+    if (!normalizedGender || !Object.values(Gender).includes(normalizedGender as Gender)) {
+      res.json(new AppResponse('Valid gender is required', {}, 400));
       return;
     }
 
@@ -38,6 +44,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         email,
         password: hashedPassword,
         name,
+        gender: normalizedGender as Gender,
       },
     });
 

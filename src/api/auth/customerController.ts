@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
-import { Role } from '../../generated/prisma/enums';
+import { Role, Gender } from '../../generated/prisma/enums';
 import {
   createAccessToken,
   createRefreshToken,
@@ -76,7 +76,7 @@ export const customerLoginSendOtp = async (req: Request, res: Response): Promise
  */
 export const customerVerifyOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, otp, name, email, address, birthDate } = req.body;
+    const { phone, otp, name, email, address, birthDate, gender } = req.body;
 
     if (!phone || !otp) {
       throw new AppError('Phone number and OTP code are required', 400);
@@ -109,13 +109,26 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
     }
     const cleanAddress = address && typeof address === 'string' && address.trim() !== '' ? address.trim() : null;
 
+    let normalizedGender: Gender | null = null;
+    if (gender) {
+      const g = String(gender).toUpperCase().trim();
+      if (Object.values(Gender).includes(g as Gender)) {
+        normalizedGender = g as Gender;
+      }
+    }
+
     if (!customer) {
+      if (!normalizedGender) {
+        throw new AppError('Gender is required to create an account', 400);
+      }
+
       const generatedCode = await generateUniqueReferralCode();
       // Auto-create customer record on verification
       customer = await prisma.customer.create({
         data: {
           phone: normalized,
           name: name || `Customer ${normalized.slice(-4)}`,
+          gender: normalizedGender,
           email: cleanEmail,
           birthDate: parsedBirthDate,
           address: cleanAddress,
@@ -135,6 +148,9 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
       }
     } else {
       const updateData: any = {};
+      if (normalizedGender && !customer.gender) {
+        updateData.gender = normalizedGender;
+      }
       if (!customer.referralCode) {
         updateData.referralCode = await generateUniqueReferralCode();
       }
@@ -172,6 +188,7 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
 
     const customerPayload = {
       ...customerPayloadRaw,
+      gender: customer.gender,
       saloonId: customer.defaultSaloonId,
       saloon: customer.defaultSaloon,
       address: customer.address || '',
@@ -205,10 +222,19 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
  */
 export const customerSignupSendOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, name, email } = req.body;
+    const { phone, name, email, gender } = req.body;
 
     if (!phone) {
       throw new AppError('Phone number is required for signup', 400);
+    }
+
+    let normalizedGender: Gender | null = null;
+    if (gender) {
+      const g = String(gender).toUpperCase().trim();
+      if (!Object.values(Gender).includes(g as Gender)) {
+        throw new AppError('Invalid gender selected', 400);
+      }
+      normalizedGender = g as Gender;
     }
 
     const normalized = normalizePhone(phone);
@@ -250,6 +276,7 @@ export const customerSignupSendOtp = async (req: Request, res: Response): Promis
         phone: normalized,
         name,
         email: cleanEmail,
+        gender: normalizedGender,
         ...(process.env.NODE_ENV === 'development' ? { devOtp: otp } : {}),
       })
     );

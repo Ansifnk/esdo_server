@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
+import { Gender } from '../../generated/prisma/enums';
 
 /**
  * GET /api/customer
@@ -34,6 +35,7 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
           name: true,
           phone: true,
           email: true,
+          gender: true,
           birthDate: true,
           address: true,
           points: true,
@@ -73,6 +75,7 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
         name: c.name,
         phone: c.phone,
         email: c.email,
+        gender: c.gender,
         birthDate: c.birthDate,
         address: c.address || '',
         points: totalPoints,
@@ -102,7 +105,12 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
  */
 export const createCustomer = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, phone, email, birthDate, address } = req.body;
+    const { name, phone, email, birthDate, address, gender } = req.body;
+
+    const normalizedGender = gender ? String(gender).toUpperCase().trim() : null;
+    if (!normalizedGender || !Object.values(Gender).includes(normalizedGender as Gender)) {
+      throw new AppError('Gender is required', 400);
+    }
 
     const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : null;
     let parsedBirthDate: Date | null = null;
@@ -145,6 +153,7 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
         name: name || 'Walk-in Customer',
         phone: phone || null,
         email: cleanEmail,
+        gender: normalizedGender as Gender,
         birthDate: parsedBirthDate,
         address: cleanAddress,
         defaultSaloonId: targetSaloonId,
@@ -217,6 +226,7 @@ export const getCustomerById = async (req: Request, res: Response): Promise<void
 
     const customerData = {
       ...cleanC,
+      gender: c.gender,
       points: totalPoints,
       rewardPoints,
       referralPoints,
@@ -247,8 +257,16 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
       throw new AppError('Customer not found', 404);
     }
 
-    const { name, phone, email, birthDate, address, defaultSaloonId, saloonId } = req.body;
+    const { name, phone, email, birthDate, address, defaultSaloonId, saloonId, gender } = req.body;
     const updateData: any = {};
+
+    if (gender !== undefined) {
+      const normalizedGender = gender ? String(gender).toUpperCase().trim() : null;
+      if (!normalizedGender || !Object.values(Gender).includes(normalizedGender as Gender)) {
+        throw new AppError('Valid gender is required', 400);
+      }
+      updateData.gender = normalizedGender as Gender;
+    }
 
     if (name !== undefined) {
       const cleanName = typeof name === 'string' ? name.trim() : '';
@@ -416,7 +434,7 @@ export const updateCustomerProfile = async (req: Request, res: Response): Promis
       throw new AppError('Authentication required', 401);
     }
 
-    const { name, email, birthDate, address } = req.body;
+    const { name, email, birthDate, address, gender } = req.body;
 
     // Check if customer exists
     const customer = await prisma.customer.findUnique({
@@ -428,6 +446,14 @@ export const updateCustomerProfile = async (req: Request, res: Response): Promis
     }
 
     const updateData: any = {};
+
+    if (gender !== undefined) {
+      const normalizedGender = gender ? String(gender).toUpperCase().trim() : null;
+      if (!normalizedGender || !Object.values(Gender).includes(normalizedGender as Gender)) {
+        throw new AppError('Please select a valid gender', 400);
+      }
+      updateData.gender = normalizedGender as Gender;
+    }
 
     if (name !== undefined) {
       const cleanName = typeof name === 'string' ? name.trim() : '';
@@ -512,15 +538,15 @@ export const validateImportCustomers = async (req: Request, res: Response): Prom
     const [existingPhones, existingEmails] = await Promise.all([
       cleanPhones.length > 0
         ? prisma.customer.findMany({
-            where: { phone: { in: cleanPhones } },
-            select: { phone: true, name: true, id: true },
-          })
+          where: { phone: { in: cleanPhones } },
+          select: { phone: true, name: true, id: true },
+        })
         : [],
       cleanEmails.length > 0
         ? prisma.customer.findMany({
-            where: { email: { in: cleanEmails } },
-            select: { email: true, name: true, id: true },
-          })
+          where: { email: { in: cleanEmails } },
+          select: { email: true, name: true, id: true },
+        })
         : [],
     ]);
 
@@ -565,15 +591,15 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
     const [existingPhoneRecords, existingEmailRecords] = await Promise.all([
       allPhones.length > 0
         ? prisma.customer.findMany({
-            where: { phone: { in: allPhones } },
-            select: { phone: true },
-          })
+          where: { phone: { in: allPhones } },
+          select: { phone: true },
+        })
         : [],
       allEmails.length > 0
         ? prisma.customer.findMany({
-            where: { email: { in: allEmails } },
-            select: { email: true },
-          })
+          where: { email: { in: allEmails } },
+          select: { email: true },
+        })
         : [],
     ]);
 
@@ -651,6 +677,16 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
         }
       }
 
+      // Parse gender
+      let parsedGender: Gender | null = null;
+      if (c.gender) {
+        const g = String(c.gender).toUpperCase().trim();
+        if (['MALE', 'M', 'MEN', 'MAN'].includes(g)) parsedGender = Gender.MALE;
+        else if (['FEMALE', 'F', 'WOMEN', 'WOMAN'].includes(g)) parsedGender = Gender.FEMALE;
+        else if (['OTHER', 'O', 'NONBINARY'].includes(g)) parsedGender = Gender.OTHER;
+        else if (Object.values(Gender).includes(g as Gender)) parsedGender = g as Gender;
+      }
+
       // Track as seen
       if (rawPhone) seenPhonesInBatch.add(rawPhone);
       if (rawEmail) seenEmailsInBatch.add(rawEmail);
@@ -659,6 +695,7 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
         name: rawName || 'Walk-in Customer',
         phone: rawPhone,
         email: rawEmail,
+        gender: parsedGender,
         birthDate: parsedBirthDate,
         address: c.address && typeof c.address === 'string' ? c.address.trim() || null : null,
       });
