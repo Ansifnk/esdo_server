@@ -16,9 +16,9 @@ export function getFinancialYear(date: Date = new Date()): string {
 /**
  * Determine the next invoice number based on booking source and financial year.
  * Format:
- *  - Website: esdo_2026-27_1600
- *  - Admin:   ESDO_2026-27_1600
- * Starts with 1600 then increments.
+ *  - Website: esdo_2026-27_1700
+ *  - Admin:   ESDO_2026-27_1700
+ * Starts with 1700 then increments.
  */
 export async function getNextInvoiceNumber(
   source: 'ADMIN' | 'WEBSITE' | string,
@@ -39,7 +39,7 @@ export async function getNextInvoiceNumber(
     select: { invoiceNumber: true },
   });
 
-  let maxSeq = 1599; // Starts with 1600 (1599 + 1)
+  let maxSeq = 1699; // Starts with 1700 (1699 + 1)
   const seqRegex = /(?:esdo|ESDO)_\d{4}-\d{2}_(\d+)/i;
 
   for (const inv of existingInvoices) {
