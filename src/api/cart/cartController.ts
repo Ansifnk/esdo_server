@@ -274,6 +274,9 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       if (!service) {
         throw new AppError('Service not found', 404);
       }
+      if (!service.isActive) {
+        throw new AppError('This service is currently unavailable', 400);
+      }
       price = service.discountPrice > 0 ? service.discountPrice : service.price;
       if (typeof service.duration === 'number' && service.duration > 0) {
         itemDuration = service.duration;

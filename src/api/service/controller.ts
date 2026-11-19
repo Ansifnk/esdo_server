@@ -25,6 +25,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
     await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
     await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
+    await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -51,6 +52,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       afterCareMessage = '',
       duration = 0,
       orderNo = 0,
+      isActive = true,
       relatedServiceIds = [],
     } = req.body;
 
@@ -116,6 +118,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         afterCareMessage,
         duration,
         orderNo: Number(orderNo) || 0,
+        isActive: isActive !== undefined ? Boolean(isActive) : true,
         saloon: { connect: { id: saloonId } },
         categories: {
           connect: categoryIds.map((id: string) => ({ id })),
@@ -154,6 +157,10 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     const subCategoryIdQuery = req.query.subCategoryId as string;
     const staffIdQuery = req.query.staffId as string;
     const genderQuery = req.query.serviceGender as ServiceGender;
+    const isActiveQuery = req.query.isActive as string;
+
+    const roles = (req.user?.roles || []).map((r: any) => r.role);
+    const isAdmin = roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
 
     const where: any = {};
     const andClauses: any[] = [];
@@ -187,6 +194,13 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
       });
     }
 
+    if (!isAdmin) {
+      // Non-admin / public website visitors should only ever see active services
+      andClauses.push({ isActive: true });
+    } else if (isActiveQuery !== undefined) {
+      andClauses.push({ isActive: isActiveQuery === 'true' });
+    }
+
     if (search) {
       andClauses.push({
         OR: [
@@ -212,7 +226,9 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
           categories: true,
           subCategories: true,
           stylists: true,
-          relatedServices: true,
+          relatedServices: {
+            where: isAdmin ? {} : { isActive: true },
+          },
           _count: { select: { reviews: true } },
         },
         skip: pagination.offset,
@@ -252,6 +268,9 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    const roles = (req.user?.roles || []).map((r: any) => r.role);
+    const isAdmin = roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
+
     const id = req.params.id as string;
     const service = await prisma.service.findUnique({
       where: { id },
@@ -260,13 +279,15 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
         categories: true,
         subCategories: true,
         stylists: true,
-        relatedServices: true,
+        relatedServices: {
+          where: isAdmin ? {} : { isActive: true },
+        },
         _count: { select: { reviews: true } },
       },
     });
 
-    if (!service) {
-      res.json(new AppResponse('Service not found', {}, 404));
+    if (!service || (!service.isActive && !isAdmin)) {
+      res.json(new AppResponse('Service not found or is currently unavailable', {}, 404));
       return;
     }
 
@@ -307,6 +328,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     await body('afterCareMessage').optional().isString().withMessage('AfterCare message must be a string').run(req);
     await body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer').run(req);
     await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a positive integer').run(req);
+    await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
     await body('relatedServiceIds').optional().isArray().withMessage('relatedServiceIds must be an array').run(req);
 
     const errors = validationResult(req);
@@ -334,6 +356,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       afterCareMessage,
       duration,
       orderNo,
+      isActive,
       relatedServiceIds,
     } = req.body;
 
@@ -417,6 +440,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         afterCareMessage: afterCareMessage !== undefined ? afterCareMessage : existingService.afterCareMessage,
         duration: duration !== undefined ? duration : existingService.duration,
         orderNo: orderNo !== undefined ? Number(orderNo) : existingService.orderNo,
+        isActive: isActive !== undefined ? Boolean(isActive) : existingService.isActive,
         categories: categoryIds !== undefined ? {
           set: categoryIds.map((cid: string) => ({ id: cid })),
         } : undefined,

@@ -99,6 +99,11 @@ export const createCustomPackage = async (req: Request, res: Response): Promise<
       return;
     }
 
+    if (services.some((s) => !s.isActive)) {
+      res.json(new AppResponse('One or more selected services are currently unavailable', {}, 400));
+      return;
+    }
+
     // Calculate total price based on service prices
     const totalPrice = services.reduce((sum, s) => {
       const servicePrice = s.discountPrice > 0 ? s.discountPrice : s.price;
@@ -303,8 +308,9 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
     // Check if caller is Admin / Super Admin
     const isSuperAdmin = req.user?.roles?.some((r: any) => r.role === Role.SUPER_ADMIN);
     const isAdmin = req.user?.roles?.some((r: any) => r.role === Role.ADMIN);
+    const hasAdminAccess = Boolean(isSuperAdmin || isAdmin);
 
-    if (isSuperAdmin || isAdmin) {
+    if (hasAdminAccess) {
       // In admin view, by default show standard packages (isCustom: false)
       if (req.query.includeCustom !== 'true') {
         where.isCustom = false;
@@ -345,7 +351,9 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         where,
         include: {
           saloon: true,
-          services: true,
+          services: {
+            where: hasAdminAccess ? {} : { isActive: true },
+          },
         },
         skip: pagination.offset,
         take: pagination.limit,
@@ -377,12 +385,17 @@ export const getPackageById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    const roles = (req.user?.roles || []).map((r: any) => r.role);
+    const isAdmin = roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
+
     const id = req.params.id as string;
     const pkg = await prisma.package.findUnique({
       where: { id },
       include: {
         saloon: true,
-        services: true,
+        services: {
+          where: isAdmin ? {} : { isActive: true },
+        },
       },
     });
 

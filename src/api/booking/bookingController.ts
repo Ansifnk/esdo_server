@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
-import { BookingStatus, PaymentStatus, PaymentMode } from '../../generated/prisma/enums';
+import { BookingStatus, PaymentStatus, PaymentMode, Role } from '../../generated/prisma/enums';
 import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
@@ -593,6 +593,11 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         const srv = await prisma.service.findUnique({ where: { id: serviceIdToLookup } });
         if (!srv) {
           throw new AppError(`Service not found for item #${i + 1}`, 404);
+        }
+        const roles = (req.user?.roles || []).map((r: any) => r.role);
+        const isAdmin = roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
+        if (!srv.isActive && !isAdmin) {
+          throw new AppError(`Service '${srv.name}' is currently unavailable`, 400);
         }
         if (srv.saloonId !== targetSaloonId) {
           throw new AppError(`Service '${srv.name}' does not belong to the selected saloon`, 400);

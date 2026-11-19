@@ -7,14 +7,14 @@ import {
   updateService,
   deleteService,
 } from './controller';
-import { authenticate, hasAuth } from '../../middlewares/auth';
+import { authenticate, hasAuth, optionalAuthenticate } from '../../middlewares/auth';
 import { Role } from '../../generated/prisma/enums';
 
 const router = Router();
 
 // Public routes for customer/visitor access
-router.get('/', getServices);
-router.get('/:id', getServiceById);
+router.get('/', optionalAuthenticate, getServices);
+router.get('/:id', optionalAuthenticate, getServiceById);
 router.get('/:id/reviews', getServiceReviews);
 
 // Protected routes (Admin / Super Admin only)

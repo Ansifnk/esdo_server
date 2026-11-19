@@ -23,7 +23,7 @@ router.post('/custom', authenticate, createCustomPackage);
 
 // Public routes (with optional customer auth for customer-specific packages)
 router.get('/', optionalAuthenticate, getPackages);
-router.get('/:id', getPackageById);
+router.get('/:id', optionalAuthenticate, getPackageById);
 
 // Protected routes (Admin / Super Admin only)
 router.post('/', authenticate, hasAuth({ anyRole: [Role.SUPER_ADMIN, Role.ADMIN] }), createPackage);
