@@ -8,18 +8,8 @@ import {
   SMS_BOOKING_DETAILS_TEMPLATE_ID,
   SMS_TEMPLATE_API_URL,
 } from '../configs/env';
+import { normalizePhone } from './phoneUtils';
 
-/**
- * Clean and normalize phone number string
- */
-export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  // If 10 digit Indian number, append country code 91
-  if (digits.length === 10) {
-    return `91${digits}`;
-  }
-  return digits;
-}
 
 /**
  * SMS utility functions for STM Technologies SMS gateway.

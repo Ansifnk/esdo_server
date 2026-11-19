@@ -15,8 +15,8 @@ import {
   verifyOtpCode,
   isOtpRateLimited,
   sendOtpSms,
-  normalizePhone,
 } from '../../utils/otp';
+import { findCustomerByPhone, normalizePhone } from '../../utils/phoneUtils';
 import { generateUniqueReferralCode } from '../rewards/rewardUtils';
 import { referralService } from '../rewards/referralService';
 
@@ -34,10 +34,8 @@ export const customerLoginSendOtp = async (req: Request, res: Response): Promise
 
     const normalized = normalizePhone(phone);
 
-    // Check if customer exists
-    const customer = await prisma.customer.findUnique({
-      where: { phone: normalized },
-    });
+    // Check if customer exists (supports normalized, legacy formatted, and auto-heals DB)
+    const customer = await findCustomerByPhone(phone, { autoHeal: true });
 
     if (!customer) {
       throw new AppError('Account not found with this phone number. Please register first.', 404);
@@ -90,10 +88,10 @@ export const customerVerifyOtp = async (req: Request, res: Response): Promise<vo
       throw new AppError(otpResult.message || 'Invalid OTP', 400);
     }
 
-    // Find or create customer
-    let customer = await prisma.customer.findUnique({
-      where: { phone: normalized },
+    // Find or create customer (supports normalized, legacy formatted, and auto-heals DB)
+    let customer: any = await findCustomerByPhone(phone, {
       include: { defaultSaloon: true },
+      autoHeal: true,
     });
 
     const referralCodeInput = req.body.referredByCode || req.body.referralCode;
@@ -239,10 +237,8 @@ export const customerSignupSendOtp = async (req: Request, res: Response): Promis
 
     const normalized = normalizePhone(phone);
 
-    // Check if customer already exists
-    const existingCustomer = await prisma.customer.findUnique({
-      where: { phone: normalized },
-    });
+    // Check if customer already exists (supports normalized, legacy formatted)
+    const existingCustomer = await findCustomerByPhone(phone);
 
     if (existingCustomer) {
       throw new AppError('This phone number is already registered. Please log in.', 400);

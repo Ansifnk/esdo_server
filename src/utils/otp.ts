@@ -2,18 +2,8 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { smsTemplateSend } from './smsUtils';
 import { NODE_ENV, SMS_OTP_TEMPLATE_ID, USE_STATIC_OTP } from '../configs/env';
+import { normalizePhone } from './phoneUtils';
 
-/**
- * Clean and normalize phone number string
- */
-export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  // If 10 digit Indian number, append country code 91
-  if (digits.length === 10) {
-    return `91${digits}`;
-  }
-  return digits;
-}
 
 /**
  * Generate a random numeric OTP of specified length (default 4 digits)

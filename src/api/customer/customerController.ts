@@ -4,6 +4,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 import { Gender } from '../../generated/prisma/enums';
+import { normalizePhone, getPhoneLookupVariants, findCustomerByPhone } from '../../utils/phoneUtils';
 
 /**
  * GET /api/customer
@@ -17,9 +18,11 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
     const whereCondition: any = {};
     if (search && typeof search === 'string' && search.trim() !== '') {
       const q = search.trim();
+      const qDigits = q.replace(/\D/g, '');
       whereCondition.OR = [
         { name: { contains: q, mode: 'insensitive' } },
         { phone: { contains: q, mode: 'insensitive' } },
+        ...(qDigits.length >= 3 ? [{ phone: { contains: qDigits } }] : []),
         { email: { contains: q, mode: 'insensitive' } },
       ];
     }
@@ -126,8 +129,9 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       throw new AppError('Please provide at least a customer name, phone number, or email.', 400);
     }
 
-    if (phone) {
-      const existing = await prisma.customer.findUnique({ where: { phone } });
+    const normalizedPhone = phone && typeof phone === 'string' && phone.trim() !== '' ? normalizePhone(phone) : null;
+    if (normalizedPhone) {
+      const existing = await findCustomerByPhone(normalizedPhone);
       if (existing) {
         throw new AppError('A customer with this phone number already exists.', 400);
       }
@@ -151,7 +155,7 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
     const newCustomer = await prisma.customer.create({
       data: {
         name: name || 'Walk-in Customer',
-        phone: phone || null,
+        phone: normalizedPhone,
         email: cleanEmail,
         gender: normalizedGender as Gender,
         birthDate: parsedBirthDate,
@@ -277,14 +281,14 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
     }
 
     if (phone !== undefined) {
-      const cleanPhone = phone && typeof phone === 'string' && phone.trim() !== '' ? phone.trim() : null;
-      if (cleanPhone && cleanPhone !== customer.phone) {
-        const existing = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+      const normalizedPhone = phone && typeof phone === 'string' && phone.trim() !== '' ? normalizePhone(phone) : null;
+      if (normalizedPhone && normalizedPhone !== customer.phone) {
+        const existing = await findCustomerByPhone(normalizedPhone);
         if (existing && existing.id !== customer.id) {
           throw new AppError('A customer with this phone number already exists.', 400);
         }
       }
-      updateData.phone = cleanPhone;
+      updateData.phone = normalizedPhone;
     }
 
     if (email !== undefined) {
@@ -528,17 +532,22 @@ export const validateImportCustomers = async (req: Request, res: Response): Prom
   try {
     const { phones = [], emails = [] } = req.body;
 
-    const cleanPhones = Array.isArray(phones)
-      ? phones.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim())
-      : [];
+    const phoneVariantsToCheck: string[] = [];
+    if (Array.isArray(phones)) {
+      for (const p of phones) {
+        if (typeof p === 'string' && p.trim()) {
+          phoneVariantsToCheck.push(...getPhoneLookupVariants(p));
+        }
+      }
+    }
     const cleanEmails = Array.isArray(emails)
       ? emails.filter((e: any) => typeof e === 'string' && e.trim()).map((e: string) => e.trim().toLowerCase())
       : [];
 
     const [existingPhones, existingEmails] = await Promise.all([
-      cleanPhones.length > 0
+      phoneVariantsToCheck.length > 0
         ? prisma.customer.findMany({
-          where: { phone: { in: cleanPhones } },
+          where: { phone: { in: phoneVariantsToCheck } },
           select: { phone: true, name: true, id: true },
         })
         : [],
@@ -550,9 +559,27 @@ export const validateImportCustomers = async (req: Request, res: Response): Prom
         : [],
     ]);
 
+    // Build set of existing normalized phones to flag any match in the imported batch
+    const existingNormalizedPhones = new Set(
+      existingPhones.map((p) => (p.phone ? normalizePhone(p.phone) : '')).filter(Boolean)
+    );
+
+    const flaggedExistingPhones = new Set<string>();
+    // Include both original stored format and any input phones that match
+    for (const p of existingPhones) {
+      if (p.phone) flaggedExistingPhones.add(p.phone);
+    }
+    if (Array.isArray(phones)) {
+      for (const p of phones) {
+        if (typeof p === 'string' && existingNormalizedPhones.has(normalizePhone(p))) {
+          flaggedExistingPhones.add(p);
+        }
+      }
+    }
+
     res.json(
       new AppResponse('Validation completed', {
-        existingPhones: existingPhones.map((p) => p.phone).filter(Boolean),
+        existingPhones: Array.from(flaggedExistingPhones),
         existingEmails: existingEmails.map((e) => e.email).filter(Boolean),
         phoneMatches: existingPhones,
         emailMatches: existingEmails,
@@ -576,12 +603,12 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
       throw new AppError('No customer records provided for import.', 400);
     }
 
-    // Collect all phones and emails to check against database
-    const allPhones: string[] = [];
+    // Collect all phone lookup variants and emails to check against database
+    const phoneVariantsToCheck: string[] = [];
     const allEmails: string[] = [];
     for (const c of customers) {
       if (c.phone && typeof c.phone === 'string' && c.phone.trim()) {
-        allPhones.push(c.phone.trim());
+        phoneVariantsToCheck.push(...getPhoneLookupVariants(c.phone));
       }
       if (c.email && typeof c.email === 'string' && c.email.trim()) {
         allEmails.push(c.email.trim().toLowerCase());
@@ -589,9 +616,9 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
     }
 
     const [existingPhoneRecords, existingEmailRecords] = await Promise.all([
-      allPhones.length > 0
+      phoneVariantsToCheck.length > 0
         ? prisma.customer.findMany({
-          where: { phone: { in: allPhones } },
+          where: { phone: { in: phoneVariantsToCheck } },
           select: { phone: true },
         })
         : [],
@@ -603,7 +630,9 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
         : [],
     ]);
 
-    const existingPhoneSet = new Set(existingPhoneRecords.map((r) => r.phone).filter(Boolean));
+    const existingNormalizedPhoneSet = new Set(
+      existingPhoneRecords.map((r) => (r.phone ? normalizePhone(r.phone) : '')).filter(Boolean)
+    );
     const existingEmailSet = new Set(existingEmailRecords.map((r) => r.email).filter(Boolean));
 
     const seenPhonesInBatch = new Set<string>();
@@ -616,10 +645,11 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
       const rowNumber = index + 1;
       const rawName = c.name && typeof c.name === 'string' ? c.name.trim() : '';
       const rawPhone = c.phone ? String(c.phone).trim() : null;
+      const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
       const rawEmail = c.email && typeof c.email === 'string' && c.email.trim() ? c.email.trim().toLowerCase() : null;
 
       // Must have at least name, phone, or email
-      if (!rawName && !rawPhone && !rawEmail) {
+      if (!rawName && !normalizedPhone && !rawEmail) {
         skippedRows.push({
           rowNumber,
           reason: 'Missing name, phone, and email. Row is completely empty.',
@@ -628,8 +658,8 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
         return;
       }
 
-      // Check phone duplication in DB
-      if (rawPhone && existingPhoneSet.has(rawPhone)) {
+      // Check phone duplication in DB (checks against both normalized and existing formats)
+      if (normalizedPhone && existingNormalizedPhoneSet.has(normalizedPhone)) {
         skippedRows.push({
           rowNumber,
           reason: `Phone number '${rawPhone}' already exists in database.`,
@@ -639,7 +669,7 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
       }
 
       // Check phone duplication within batch
-      if (rawPhone && seenPhonesInBatch.has(rawPhone)) {
+      if (normalizedPhone && seenPhonesInBatch.has(normalizedPhone)) {
         skippedRows.push({
           rowNumber,
           reason: `Duplicate phone number '${rawPhone}' within the uploaded file.`,
@@ -688,12 +718,18 @@ export const bulkImportCustomers = async (req: Request, res: Response): Promise<
       }
 
       // Track as seen
-      if (rawPhone) seenPhonesInBatch.add(rawPhone);
-      if (rawEmail) seenEmailsInBatch.add(rawEmail);
+      if (normalizedPhone) {
+        seenPhonesInBatch.add(normalizedPhone);
+        existingNormalizedPhoneSet.add(normalizedPhone);
+      }
+      if (rawEmail) {
+        seenEmailsInBatch.add(rawEmail);
+        existingEmailSet.add(rawEmail);
+      }
 
       validInserts.push({
         name: rawName || 'Walk-in Customer',
-        phone: rawPhone,
+        phone: normalizedPhone,
         email: rawEmail,
         gender: parsedGender,
         birthDate: parsedBirthDate,
