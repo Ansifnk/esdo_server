@@ -166,6 +166,7 @@ model StaffLanguage {
 
 model Staff {
   id              String            @id @default(uuid())
+  orderNo         Int               @default(0)
   name            String
   phone           String            @default("")
   languages       String[]          @default([])

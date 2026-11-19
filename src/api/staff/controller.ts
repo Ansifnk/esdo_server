@@ -10,6 +10,7 @@ import { getPagination, getPaginationMeta } from '../../utils/pagination';
 export const createStaff = async (req: Request, res: Response): Promise<void> => {
   try {
     await body('name').trim().notEmpty().withMessage('Name is required').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
     await body('phone').optional().isString().withMessage('Phone must be a string').run(req);
     await body('languages').optional().isArray().withMessage('languages must be an array').run(req);
     await body('saloonId').isUUID().withMessage('Invalid saloon ID format').run(req);
@@ -34,6 +35,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
 
     let {
       name,
+      orderNo = 0,
       phone = '',
       languages = [],
       saloonId,
@@ -101,6 +103,7 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
     // Create staff in database
     const staff = await prisma.staff.create({
       data: {
+        orderNo: orderNo !== undefined ? Number(orderNo) : 0,
         name,
         phone,
         languages,
@@ -222,7 +225,7 @@ export const getStaffs = async (req: Request, res: Response): Promise<void> => {
         },
         skip: pagination.offset,
         take: pagination.limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
       }),
       prisma.staff.count({ where }),
     ]);
@@ -311,6 +314,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
   try {
     await param('id').isUUID().withMessage('Invalid staff ID format').run(req);
     await body('name').optional().trim().notEmpty().withMessage('Name cannot be empty').run(req);
+    await body('orderNo').optional().isInt({ min: 0 }).withMessage('Order number must be a non-negative integer').run(req);
     await body('phone').optional().isString().withMessage('Phone must be a string').run(req);
     await body('languages').optional().isArray().withMessage('languages must be an array').run(req);
     await body('saloonId').optional().isUUID().withMessage('Invalid saloon ID format').run(req);
@@ -334,7 +338,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     }
 
     const id = req.params.id as string;
-    let { name, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, experience, happyClients, satisfaction, image, isActive, serviceGender, stylistCategory, type } = req.body;
+    let { name, orderNo, phone, languages, saloonId, categoryIds, subCategoryIds, slots, joiningDate, experience, happyClients, satisfaction, image, isActive, serviceGender, stylistCategory, type } = req.body;
 
     const user = req.user;
 
@@ -410,6 +414,7 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
       await tx.staff.update({
         where: { id },
         data: {
+          orderNo: orderNo !== undefined ? Number(orderNo) : existingStaff.orderNo,
           name: name ?? existingStaff.name,
           phone: phone ?? existingStaff.phone,
           languages: languages ?? existingStaff.languages,

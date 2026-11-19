@@ -137,7 +137,9 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         saloon: true,
         categories: true,
         subCategories: true,
-        stylists: true,
+        stylists: {
+          orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
+        },
         relatedServices: true,
       },
     });
@@ -225,7 +227,9 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
           saloon: true,
           categories: true,
           subCategories: true,
-          stylists: true,
+          stylists: {
+            orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
+          },
           relatedServices: {
             where: isAdmin ? {} : { isActive: true },
           },
@@ -278,7 +282,9 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
         saloon: true,
         categories: true,
         subCategories: true,
-        stylists: true,
+        stylists: {
+          orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
+        },
         relatedServices: {
           where: isAdmin ? {} : { isActive: true },
         },
@@ -458,7 +464,9 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         saloon: true,
         categories: true,
         subCategories: true,
-        stylists: true,
+        stylists: {
+          orderBy: [{ orderNo: 'asc' }, { createdAt: 'desc' }],
+        },
         relatedServices: true,
       },
     });

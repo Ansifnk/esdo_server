@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Staff" ADD COLUMN     "orderNo" INTEGER NOT NULL DEFAULT 0;
