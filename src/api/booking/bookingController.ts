@@ -599,7 +599,9 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanServiceId = serviceIdToLookup;
         if (price === 0) {
-          price = srv.discountPrice > 0 ? srv.discountPrice : srv.price;
+          const menuPrice = Number(srv.price) || 0;
+          const tax = Math.round(menuPrice * 0.05 * 100) / 100;
+          price = Math.round(menuPrice + tax)
         }
         if (typeof srv.duration === 'number' && srv.duration > 0) {
           itemDuration = srv.duration;
@@ -618,7 +620,9 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanPackageId = packageIdToLookup;
         if (price === 0) {
-          price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
+          const menuPrice = Number(pkg.price) || 0;
+          const tax = Math.round(menuPrice * 0.05 * 100) / 100;
+          price = Math.round(menuPrice + tax)
         }
         const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
         if (totalPkgDuration > 0) {
@@ -649,8 +653,9 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       }
 
       const rawSlot = (item.timeSlot && typeof item.timeSlot === 'string') ? item.timeSlot.trim() : '';
+      const isCompleted = status === BookingStatus.COMPLETED;
 
-      if (cleanStaffId && rawSlot) {
+      if (cleanStaffId && rawSlot && !isCompleted) {
         // Intra-booking conflict check taking durations into account
         const conflict = processedItems.find(
           (p) =>
@@ -703,7 +708,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     let actualMembershipUsed = 0;
     const requestedMemUsed =
       paymentMode === PaymentMode.MEMBERSHIP &&
-      (membershipUsed === undefined || membershipUsed === null || Number(membershipUsed) === 0)
+        (membershipUsed === undefined || membershipUsed === null || Number(membershipUsed) === 0)
         ? balanceAfterDiscount
         : membershipUsed;
 

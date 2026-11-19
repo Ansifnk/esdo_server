@@ -780,13 +780,15 @@ export function isSlotInPast(dateStr?: string | null, timeSlotStr?: string | nul
 
 /**
  * Helper to check whether a time slot (and its full service duration) is available for a given staff member on a specific date.
- * Validates against both staff working schedule (slots configured/removed in admin) and active bookings.
+ * Validates against both staff working schedule (slots configured/removed in admin) and active confirmed bookings.
+ * Note: Completed and cancelled bookings do not block slots.
  */
 export async function isStaffSlotAvailable(
   staffId: string,
   dateStr: string,
   timeSlotStr: string,
-  durationMinutes?: number | null
+  durationMinutes?: number | null,
+  excludeBookingId?: string
 ): Promise<{ available: boolean; reason?: string }> {
   if (!staffId || !dateStr || !timeSlotStr) {
     return { available: true };
@@ -841,12 +843,13 @@ export async function isStaffSlotAvailable(
     }
   }
 
-  // 2. Check existing confirmed/completed bookings
+  // 2. Check existing active confirmed bookings (COMPLETED and CANCELLED bookings do not block slots)
   const existingBookings = await prisma.bookingItem.findMany({
     where: {
       staffId,
       booking: {
-        status: { in: ['CONFIRMED', 'COMPLETED'] },
+        status: 'CONFIRMED',
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
     },
     select: {
@@ -909,12 +912,12 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Find all active booking items for this staff member (only block after successful payment/checkout)
+    // Find all active confirmed booking items for this staff member (COMPLETED and CANCELLED slots are available)
     const bookingItems = await prisma.bookingItem.findMany({
       where: {
         staffId: id,
         booking: {
-          status: { in: ['CONFIRMED', 'COMPLETED'] },
+          status: 'CONFIRMED',
         },
       },
       select: {
