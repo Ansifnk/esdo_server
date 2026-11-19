@@ -16,31 +16,32 @@ export function getFinancialYear(date: Date = new Date()): string {
 /**
  * Determine the next invoice number based on booking source and financial year.
  * Format:
- *  - Website: esdo_2026-27_1700
- *  - Admin:   ESDO_2026-27_1700
- * Starts with 1700 then increments.
+ *  - Online (Website):  esdo_2026-27_1700, esdo_2026-27_1701...
+ *  - Offline (Admin):   ESDO_2026-27_1700, ESDO_2026-27_1701...
+ * Starts with 1700 for each channel and continuously increments across financial years.
  */
 export async function getNextInvoiceNumber(
   source: 'ADMIN' | 'WEBSITE' | string,
   date: Date = new Date(),
   tx: any = prisma
 ): Promise<string> {
-  const prefix = source === 'ADMIN' ? 'ESDO' : 'esdo';
+  const isAdmin = typeof source === 'string' && source.trim().toUpperCase() === 'ADMIN';
+  const prefix = isAdmin ? 'ESDO' : 'esdo';
   const fy = getFinancialYear(date);
+  const searchPrefix = `${prefix}_`;
 
-  // Find all existing invoices for this financial year
+  // Find all existing invoices for this specific channel prefix across all years
   const existingInvoices = await tx.invoice.findMany({
     where: {
       invoiceNumber: {
-        contains: `_${fy}_`,
-        mode: 'insensitive',
+        startsWith: searchPrefix,
       },
     },
     select: { invoiceNumber: true },
   });
 
   let maxSeq = 1699; // Starts with 1700 (1699 + 1)
-  const seqRegex = /(?:esdo|ESDO)_\d{4}-\d{2}_(\d+)/i;
+  const seqRegex = new RegExp(`^${prefix}_\\d{4}-\\d{2}_(\\d+)$`);
 
   for (const inv of existingInvoices) {
     const match = inv.invoiceNumber.match(seqRegex);
