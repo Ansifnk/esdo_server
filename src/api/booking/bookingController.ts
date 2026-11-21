@@ -617,18 +617,26 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       const hasPackage = Boolean(item.packageId && typeof item.packageId === 'string' && item.packageId.trim());
 
       if (!hasService && !hasPackage) {
-        throw new AppError(`Item #${i + 1} must specify either a valid serviceId or packageId`, 400);
+        if (!isDummy) {
+          throw new AppError(`Item #${i + 1} must specify either a valid serviceId or packageId`, 400);
+        }
       }
 
       if (hasService && hasPackage) {
         throw new AppError(`Item #${i + 1} cannot specify both serviceId and packageId`, 400);
       }
 
+      if (isDummy && (!item.staffId || typeof item.staffId !== 'string' || !item.staffId.trim())) {
+        throw new AppError(`Stylist is required for dummy booking item #${i + 1}`, 400);
+      }
+
       let price = (item.price !== undefined && item.price !== null && !isNaN(Number(item.price)))
         ? Number(item.price)
         : 0;
 
-      if (price < 0) {
+      if (isDummy) {
+        price = 0;
+      } else if (price < 0) {
         throw new AppError(`Price for item #${i + 1} must be a valid non-negative number`, 400);
       }
 
