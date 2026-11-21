@@ -379,10 +379,11 @@ export const getBookingById = async (req: Request, res: Response): Promise<void>
 export const updateBookingStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus, paymentMode } = req.body;
+    const { status, paymentStatus, paymentMode, customerId } = req.body;
 
     const existing = await prisma.booking.findUnique({
       where: { id: String(id) },
+      include: { customer: true },
     });
 
     if (!existing) {
@@ -393,6 +394,26 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
     if (status) updateData.status = status;
     if (paymentStatus) updateData.paymentStatus = paymentStatus;
     if (paymentMode) updateData.paymentMode = paymentMode;
+
+    if (customerId && typeof customerId === 'string' && customerId.trim()) {
+      const targetCustomer = await prisma.customer.findUnique({
+        where: { id: customerId.trim() },
+      });
+      if (!targetCustomer) {
+        throw new AppError('Customer not found with provided customerId', 404);
+      }
+      updateData.customerId = targetCustomer.id;
+    }
+
+    const targetStatus = status || existing.status;
+    if (
+      existing.status === BookingStatus.DUMMY_BOOKING &&
+      (targetStatus === BookingStatus.CONFIRMED || targetStatus === BookingStatus.COMPLETED)
+    ) {
+      if (!updateData.customerId && !existing.customerId) {
+        throw new AppError('Customer details are required to confirm this dummy booking.', 400);
+      }
+    }
 
     const updatedBooking = await prisma.booking.update({
       where: { id: String(id) },
@@ -417,12 +438,28 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
 
     if (
       (updatedBooking.status === 'CONFIRMED' || updatedBooking.status === 'COMPLETED') &&
-      updatedBooking.paymentStatus === 'SUCCESS'
+      updatedBooking.paymentStatus === 'SUCCESS' &&
+      updatedBooking.customerId
     ) {
       try {
         await generateOrGetInvoiceForBooking(updatedBooking.id);
       } catch (invErr) {
         console.error('Failed to auto-generate invoice on status update:', invErr);
+      }
+    }
+
+    if (
+      existing.status === BookingStatus.DUMMY_BOOKING &&
+      (updatedBooking.status === 'CONFIRMED' || updatedBooking.status === 'COMPLETED') &&
+      updatedBooking.customer?.phone
+    ) {
+      try {
+        const smsResult = await sendBookingDetailsSms(updatedBooking.customer.phone, updatedBooking.bookingNumber);
+        if (!smsResult.success) {
+          console.warn('[BOOKING STATUS UPDATE SMS FAILED]', smsResult.message || smsResult.error);
+        }
+      } catch (smsErr) {
+        console.error('Failed to send booking SMS on status update:', smsErr);
       }
     }
 
@@ -451,12 +488,16 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
  */
 export const createAdminBooking = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Express-validator validation
-    await body('customerId')
-      .notEmpty().withMessage('Customer ID is required')
-      .isString().withMessage('Customer ID must be a string')
-      .trim()
-      .run(req);
+    const isDummy = req.body.status === BookingStatus.DUMMY_BOOKING;
+
+    // Express-validator validation (customerId is optional if DUMMY_BOOKING)
+    if (!isDummy) {
+      await body('customerId')
+        .notEmpty().withMessage('Customer ID is required')
+        .isString().withMessage('Customer ID must be a string')
+        .trim()
+        .run(req);
+    }
     await body('items')
       .isArray({ min: 1 }).withMessage('Booking must contain at least one item')
       .run(req);
@@ -531,13 +572,21 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       throw new AppError('Selected saloon not found', 404);
     }
 
-    // Look up customer — must already exist
-    const targetCustomerId = customerId.trim();
-    const existingCustomer = await prisma.customer.findUnique({
-      where: { id: targetCustomerId },
-    });
-    if (!existingCustomer) {
-      throw new AppError('Customer not found with the provided customerId', 404);
+    // Look up customer — must already exist unless dummy booking
+    let targetCustomerId: string | null = null;
+    let existingCustomer: any = null;
+    const rawCustomerId = typeof customerId === 'string' ? customerId.trim() : '';
+    if (rawCustomerId) {
+      existingCustomer = await prisma.customer.findUnique({
+        where: { id: rawCustomerId },
+      });
+      if (existingCustomer) {
+        targetCustomerId = existingCustomer.id;
+      } else if (!isDummy) {
+        throw new AppError('Customer not found with the provided customerId', 404);
+      }
+    } else if (!isDummy) {
+      throw new AppError('Customer ID is required', 400);
     }
 
     // Validate Items
@@ -782,7 +831,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         },
       });
 
-      if (actualMembershipUsed > 0) {
+      if (actualMembershipUsed > 0 && targetCustomerId) {
         await deductCustomerMembershipBalance(targetCustomerId, actualMembershipUsed, booking.id, tx);
       }
 
@@ -790,8 +839,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     });
 
     if (
+      !isDummy &&
       (newBooking.status === 'CONFIRMED' || newBooking.status === 'COMPLETED') &&
-      newBooking.paymentStatus === 'SUCCESS'
+      newBooking.paymentStatus === 'SUCCESS' &&
+      newBooking.customerId
     ) {
       try {
         await generateOrGetInvoiceForBooking(newBooking.id);
@@ -800,15 +851,17 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       }
     }
 
-    const customerPhone = newBooking.customer?.phone || existingCustomer.phone;
-    if (customerPhone) {
-      try {
-        const smsResult = await sendBookingDetailsSms(customerPhone, newBooking.bookingNumber);
-        if (!smsResult.success) {
-          console.warn('[ADMIN BOOKING SMS FAILED]', smsResult.message || smsResult.error);
+    if (!isDummy) {
+      const customerPhone = newBooking.customer?.phone || existingCustomer?.phone;
+      if (customerPhone) {
+        try {
+          const smsResult = await sendBookingDetailsSms(customerPhone, newBooking.bookingNumber);
+          if (!smsResult.success) {
+            console.warn('[ADMIN BOOKING SMS FAILED]', smsResult.message || smsResult.error);
+          }
+        } catch (smsErr) {
+          console.error('Failed to send booking SMS on admin booking create:', smsErr);
         }
-      } catch (smsErr) {
-        console.error('Failed to send booking SMS on admin booking create:', smsErr);
       }
     }
 

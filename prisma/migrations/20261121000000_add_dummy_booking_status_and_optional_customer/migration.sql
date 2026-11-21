@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "BookingStatus" ADD VALUE IF NOT EXISTS 'DUMMY_BOOKING';
+
+-- AlterTable
+ALTER TABLE "Booking" ALTER COLUMN "customerId" DROP NOT NULL;

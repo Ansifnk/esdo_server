@@ -848,12 +848,12 @@ export async function isStaffSlotAvailable(
     }
   }
 
-  // 2. Check existing active confirmed bookings (COMPLETED and CANCELLED bookings do not block slots)
+  // 2. Check existing active confirmed or dummy bookings (COMPLETED and CANCELLED bookings do not block slots)
   const existingBookings = await prisma.bookingItem.findMany({
     where: {
       staffId,
       booking: {
-        status: 'CONFIRMED',
+        status: { in: ['CONFIRMED', 'DUMMY_BOOKING'] },
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
     },
@@ -917,12 +917,12 @@ export const getStaffBookedSlots = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Find all active confirmed booking items for this staff member (COMPLETED and CANCELLED slots are available)
+    // Find all active confirmed and dummy booking items for this staff member (COMPLETED and CANCELLED slots are available)
     const bookingItems = await prisma.bookingItem.findMany({
       where: {
         staffId: id,
         booking: {
-          status: 'CONFIRMED',
+          status: { in: ['CONFIRMED', 'DUMMY_BOOKING'] },
         },
       },
       select: {

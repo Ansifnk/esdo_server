@@ -114,6 +114,10 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
     throw new AppError('Invoice can only be generated for confirmed bookings', 400);
   }
 
+  if (!booking.customerId) {
+    throw new AppError('Invoice can only be generated for bookings with a customer', 400);
+  }
+
   if (booking.paymentStatus !== 'SUCCESS') {
     throw new AppError('Invoice can only be generated for paid bookings', 400);
   }
