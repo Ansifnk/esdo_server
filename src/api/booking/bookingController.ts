@@ -796,7 +796,79 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
 
+    // Deduplication guard: check if an identical booking was created in the last 10 seconds
+    const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
+    const staffSlotFilters = processedItems
+      .filter((it) => it.staffId && it.timeSlot)
+      .map((it) => ({
+        staffId: it.staffId,
+        date: it.date,
+        timeSlot: it.timeSlot,
+      }));
+
+    if (staffSlotFilters.length > 0) {
+      const existingRecentBooking = await prisma.booking.findFirst({
+        where: {
+          source: 'ADMIN',
+          saloonId: targetSaloonId,
+          customerId: targetCustomerId || null,
+          createdAt: { gte: tenSecondsAgo },
+          items: {
+            some: {
+              OR: staffSlotFilters,
+            },
+          },
+        },
+        include: {
+          customer: true,
+          saloon: true,
+          items: {
+            include: {
+              service: true,
+              package: { include: { services: true } },
+              staff: true,
+            },
+          },
+        },
+      });
+
+      if (existingRecentBooking) {
+        res.json(new AppResponse('Booking already created (duplicate request prevented)', existingRecentBooking, 200));
+        return;
+      }
+    }
+
     const newBooking = await prisma.$transaction(async (tx) => {
+      // Serialize concurrent booking attempts per stylist and date to eliminate race conditions
+      if (status !== BookingStatus.COMPLETED) {
+        for (const item of processedItems) {
+          if (item.staffId && item.timeSlot) {
+            const dateKey = extractDateMatchKey(item.date);
+            const lockKey = `staff_booking_${item.staffId}_${dateKey}`;
+            // Transaction-level advisory lock serializes access to this staff + date
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+            // Re-verify availability inside the transaction
+            const slotCheck = await isStaffSlotAvailable(
+              item.staffId,
+              item.date,
+              item.timeSlot,
+              item.duration,
+              undefined,
+              tx
+            );
+
+            if (!slotCheck.available) {
+              throw new AppError(
+                slotCheck.reason ||
+                  `Time slot "${item.timeSlot}" is already booked. Please choose another time slot.`,
+                400
+              );
+            }
+          }
+        }
+      }
+
       const booking = await tx.booking.create({
         data: {
           bookingNumber,

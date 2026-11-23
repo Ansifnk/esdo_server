@@ -209,8 +209,8 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
           { name: { contains: search, mode: 'insensitive' } },
           { sacCode: { contains: search, mode: 'insensitive' } },
           { nickName: { contains: search, mode: 'insensitive' } },
-          { shortDescription: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
+          // { shortDescription: { contains: search, mode: 'insensitive' } },
+          // { description: { contains: search, mode: 'insensitive' } },
         ],
       });
     }

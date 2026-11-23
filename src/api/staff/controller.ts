@@ -793,7 +793,8 @@ export async function isStaffSlotAvailable(
   dateStr: string,
   timeSlotStr: string,
   durationMinutes?: number | null,
-  excludeBookingId?: string
+  excludeBookingId?: string,
+  prismaClient: any = prisma
 ): Promise<{ available: boolean; reason?: string }> {
   if (!staffId || !dateStr || !timeSlotStr) {
     return { available: true };
@@ -809,7 +810,7 @@ export async function isStaffSlotAvailable(
   const targetDateKey = extractDateMatchKey(dateStr);
   const requiredSlots = getTimeSlotsForDuration(timeSlotStr, durationMinutes);
 
-  const staff = await prisma.staff.findUnique({
+  const staff = await prismaClient.staff.findUnique({
     where: { id: staffId },
     include: { slots: true },
   });
@@ -820,7 +821,7 @@ export async function isStaffSlotAvailable(
 
   // 1. Check working schedule configured by admin
   if (targetDateKey && staff.slots) {
-    const schedule = staff.slots.find((s) => extractDateMatchKey(s.date) === targetDateKey);
+    const schedule = staff.slots.find((s: any) => extractDateMatchKey(s.date) === targetDateKey);
     if (schedule) {
       if (schedule.isWorking === false) {
         return {
@@ -849,7 +850,7 @@ export async function isStaffSlotAvailable(
   }
 
   // 2. Check existing active confirmed or dummy bookings (COMPLETED and CANCELLED bookings do not block slots)
-  const existingBookings = await prisma.bookingItem.findMany({
+  const existingBookings = await prismaClient.bookingItem.findMany({
     where: {
       staffId,
       booking: {
