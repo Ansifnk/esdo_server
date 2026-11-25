@@ -103,14 +103,36 @@ async function calculateCartSummary(cart: any, customerId?: string) {
         discount = 0;
         couponError = 'This coupon code is not valid for your account.';
       } else {
-        couponMinCartValue = offer.minCartValue || 0;
-        if (offer.minCartValue && offer.minCartValue > 0 && discountedSubtotal < offer.minCartValue) {
+        let isFirstServiceEligible = true;
+        if (offer.onlyForFirstService) {
+          if (!activeCustomerId) {
+            isFirstServiceEligible = false;
+          } else {
+            const existingBookingCount = await prisma.booking.count({
+              where: {
+                customerId: activeCustomerId,
+                status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+              },
+            });
+            if (existingBookingCount > 0) {
+              isFirstServiceEligible = false;
+            }
+          }
+        }
+
+        if (!isFirstServiceEligible) {
           discount = 0;
-          couponError = `Minimum cart value of ₹${offer.minCartValue} is required to apply coupon ${offer.couponCode}.`;
-        } else if (offer.discountType === 'PERCENTAGE') {
-          discount = (discountedSubtotal * offer.discountValue) / 100;
-        } else if (offer.discountType === 'FIXED') {
-          discount = offer.discountValue;
+          couponError = 'This coupon is valid only for your first service.';
+        } else {
+          couponMinCartValue = offer.minCartValue || 0;
+          if (offer.minCartValue && offer.minCartValue > 0 && discountedSubtotal < offer.minCartValue) {
+            discount = 0;
+            couponError = `Minimum cart value of ₹${offer.minCartValue} is required to apply coupon ${offer.couponCode}.`;
+          } else if (offer.discountType === 'PERCENTAGE') {
+            discount = (discountedSubtotal * offer.discountValue) / 100;
+          } else if (offer.discountType === 'FIXED') {
+            discount = offer.discountValue;
+          }
         }
       }
     } else {
@@ -605,6 +627,19 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
           const isCustomerAllowed = offer.customers.some((c) => c.id === customerId);
           if (!isCustomerAllowed) {
             throw new AppError('This coupon is not valid for your account', 400);
+          }
+        }
+
+        // Check first-service-only restriction
+        if (offer.onlyForFirstService) {
+          const existingBookingCount = await prisma.booking.count({
+            where: {
+              customerId,
+              status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+            },
+          });
+          if (existingBookingCount > 0) {
+            throw new AppError('This coupon is valid only for your first service.', 400);
           }
         }
 

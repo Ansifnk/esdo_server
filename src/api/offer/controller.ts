@@ -16,6 +16,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
     await body('linkUrl').optional().trim().run(req);
     await body('description').optional().trim().run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
+    await body('onlyForFirstService').optional().isBoolean().withMessage('onlyForFirstService must be a boolean').run(req);
     await body('startDate').optional().isISO8601().withMessage('Invalid start date').run(req);
     await body('endDate').optional().isISO8601().withMessage('Invalid end date').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array of UUIDs').run(req);
@@ -41,6 +42,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
       discountType = DiscountType.PERCENTAGE,
       discountValue = 0,
       minCartValue = 0,
+      onlyForFirstService = false,
       isActive = true,
       startDate,
       endDate,
@@ -173,6 +175,7 @@ export const createOffer = async (req: Request, res: Response): Promise<void> =>
         discountType: discountType,
         discountValue: Number(discountValue) || 0,
         minCartValue: type === OfferType.COUPON && minCartValue !== undefined && minCartValue !== null ? Number(minCartValue) : 0,
+        onlyForFirstService: type === OfferType.COUPON ? Boolean(onlyForFirstService) : false,
         isActive,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
@@ -370,6 +373,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
     await body('linkUrl').optional().trim().run(req);
     await body('description').optional().trim().run(req);
     await body('isActive').optional().isBoolean().withMessage('isActive must be a boolean').run(req);
+    await body('onlyForFirstService').optional().isBoolean().withMessage('onlyForFirstService must be a boolean').run(req);
     await body('startDate').optional().isISO8601().withMessage('Invalid start date').run(req);
     await body('endDate').optional().isISO8601().withMessage('Invalid end date').run(req);
     await body('serviceIds').optional().isArray().withMessage('serviceIds must be an array of UUIDs').run(req);
@@ -427,6 +431,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
       discountType,
       discountValue,
       minCartValue,
+      onlyForFirstService,
       isActive,
       startDate,
       endDate,
@@ -552,6 +557,7 @@ export const updateOffer = async (req: Request, res: Response): Promise<void> =>
         discountType: discountType !== undefined ? discountType : existingOffer.discountType,
         discountValue: discountValue !== undefined ? (Number(discountValue) || 0) : existingOffer.discountValue,
         minCartValue: finalType === OfferType.COUPON ? (minCartValue !== undefined && minCartValue !== null ? Number(minCartValue) : existingOffer.minCartValue) : 0,
+        onlyForFirstService: finalType === OfferType.COUPON ? (onlyForFirstService !== undefined ? Boolean(onlyForFirstService) : existingOffer.onlyForFirstService) : false,
         isActive: isActive !== undefined ? isActive : existingOffer.isActive,
         startDate: startDate !== undefined ? (startDate ? new Date(startDate) : null) : existingOffer.startDate,
         endDate: endDate !== undefined ? (endDate ? new Date(endDate) : null) : existingOffer.endDate,

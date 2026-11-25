@@ -310,11 +310,12 @@ model Offer {
   bannerImage       String          @default("")
   mobileBannerImage String?         @default("")
   linkUrl           String?         @default("")
-  couponCode        String          @default("")
-  discountType      DiscountType    @default(PERCENTAGE)
-  discountValue     Float           @default(0)
-  minCartValue      Float?          @default(0)
-  isActive          Boolean         @default(true)
+  couponCode          String          @default("")
+  discountType        DiscountType    @default(PERCENTAGE)
+  discountValue       Float           @default(0)
+  minCartValue        Float?          @default(0)
+  onlyForFirstService Boolean         @default(false)
+  isActive            Boolean         @default(true)
   startDate         DateTime?
   endDate           DateTime?
   saloonId          String?

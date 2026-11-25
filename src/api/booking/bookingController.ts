@@ -896,6 +896,30 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
 
+    if (sanitizedCouponCode) {
+      const couponOffer = await prisma.offer.findFirst({
+        where: {
+          couponCode: { equals: sanitizedCouponCode, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+
+      if (couponOffer && couponOffer.onlyForFirstService) {
+        if (!targetCustomerId) {
+          throw new AppError('This coupon is valid only for your first service.', 400);
+        }
+        const existingBookingCount = await prisma.booking.count({
+          where: {
+            customerId: targetCustomerId,
+            status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+          },
+        });
+        if (existingBookingCount > 0) {
+          throw new AppError('This coupon is valid only for your first service.', 400);
+        }
+      }
+    }
+
     // Deduplication guard: check if an identical booking was created in the last 10 seconds
     const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
     const staffSlotFilters = processedItems

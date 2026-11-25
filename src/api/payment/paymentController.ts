@@ -72,7 +72,26 @@ async function getCartTotalAndDiscount(cart: any) {
       const isDateValid = (!offer.startDate || new Date(offer.startDate) <= now) &&
                           (!offer.endDate || new Date(offer.endDate) >= now);
 
+      let isFirstServiceEligible = true;
+      if (offer.onlyForFirstService) {
+        if (!cart.customerId) {
+          isFirstServiceEligible = false;
+        } else {
+          const existingBookingCount = await prisma.booking.count({
+            where: {
+              customerId: cart.customerId,
+              status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+            },
+          });
+          if (existingBookingCount > 0) {
+            isFirstServiceEligible = false;
+          }
+        }
+      }
+
       if (!isCustomerAllowed) {
+        discount = 0;
+      } else if (!isFirstServiceEligible) {
         discount = 0;
       } else if (!isDateValid) {
         discount = 0;
