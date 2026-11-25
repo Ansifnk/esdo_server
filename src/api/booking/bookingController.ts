@@ -150,6 +150,7 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       paymentStatus,
       paymentMode,
       source,
+      customerId,
     } = req.query;
 
     const paginationParams = getPagination(req, 10);
@@ -164,6 +165,10 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       }
     } else if (saloonId && typeof saloonId === 'string' && saloonId.trim() !== '') {
       where.saloonId = saloonId;
+    }
+
+    if (customerId && typeof customerId === 'string' && customerId.trim() !== '') {
+      where.customerId = customerId.trim();
     }
 
     if (source && typeof source === 'string' && ['ADMIN', 'WEBSITE'].includes(source.trim())) {
@@ -225,7 +230,7 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       where.AND = andConditions;
     }
 
-    const [bookings, total] = await Promise.all([
+    const [bookings, total, customerSummary] = await Promise.all([
       prisma.booking.findMany({
         where,
         include: {
@@ -276,11 +281,28 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
         take: paginationParams.limit,
       }),
       prisma.booking.count({ where }),
+      where.customerId
+        ? prisma.booking.aggregate({
+            where: {
+              customerId: where.customerId,
+              ...(where.saloonId ? { saloonId: where.saloonId } : {}),
+              status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+            },
+            _sum: { totalAmount: true },
+            _count: { _all: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     const paginationMeta = getPaginationMeta(total, paginationParams);
+    const meta = customerSummary
+      ? {
+          totalSpent: Number(customerSummary._sum.totalAmount || 0),
+          activeBookingsCount: customerSummary._count._all,
+        }
+      : undefined;
 
-    res.json(new AppResponse('Bookings retrieved successfully', bookings, 200, paginationMeta));
+    res.json(new AppResponse('Bookings retrieved successfully', bookings, 200, paginationMeta, meta));
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.json(new AppResponse(error.message || 'Failed to retrieve bookings', {}, statusCode));
