@@ -11,7 +11,7 @@ import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
-import { validateAndCalculateCouponDiscount } from './bookingCouponService';
+import { validateAndCalculateCouponDiscount } from './bookingService';
 
 /**
  * GET /api/bookings (Customer)
@@ -284,23 +284,23 @@ export const getAdminBookings = async (req: Request, res: Response): Promise<voi
       prisma.booking.count({ where }),
       where.customerId
         ? prisma.booking.aggregate({
-            where: {
-              customerId: where.customerId,
-              ...(where.saloonId ? { saloonId: where.saloonId } : {}),
-              status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
-            },
-            _sum: { totalAmount: true },
-            _count: { _all: true },
-          })
+          where: {
+            customerId: where.customerId,
+            ...(where.saloonId ? { saloonId: where.saloonId } : {}),
+            status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
+          },
+          _sum: { totalAmount: true },
+          _count: { _all: true },
+        })
         : Promise.resolve(null),
     ]);
 
     const paginationMeta = getPaginationMeta(total, paginationParams);
     const meta = customerSummary
       ? {
-          totalSpent: Number(customerSummary._sum.totalAmount || 0),
-          activeBookingsCount: customerSummary._count._all,
-        }
+        totalSpent: Number(customerSummary._sum.totalAmount || 0),
+        activeBookingsCount: customerSummary._count._all,
+      }
       : undefined;
 
     res.json(new AppResponse('Bookings retrieved successfully', bookings, 200, paginationMeta, meta));
@@ -980,7 +980,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
             if (!slotCheck.available) {
               throw new AppError(
                 slotCheck.reason ||
-                  `Time slot "${item.timeSlot}" is already booked. Please choose another time slot.`,
+                `Time slot "${item.timeSlot}" is already booked. Please choose another time slot.`,
                 400
               );
             }
