@@ -17,6 +17,42 @@ import { rewardSettingService } from '../rewards/rewardSettingService';
 import { referralService } from '../rewards/referralService';
 
 /**
+ * Helper to get the original standard price of a cart item
+ */
+export function getItemOriginalPrice(item: any): number {
+  if (item.service?.price !== undefined && item.service?.price !== null) {
+    return Number(item.service.price) || 0;
+  }
+  if (item.package?.price !== undefined && item.package?.price !== null) {
+    return Number(item.package.price) || 0;
+  }
+  return Number(item.price) || 0;
+}
+
+/**
+ * Helper to get the effective discounted price of a cart item
+ */
+export function getItemDiscountedPrice(item: any): number {
+  if (item.service) {
+    const srvPrice = Number(item.service.price) || 0;
+    const srvDiscount = typeof item.service.discountPrice === 'number' ? item.service.discountPrice : null;
+    if (srvDiscount !== null && srvDiscount > 0 && srvDiscount < srvPrice) {
+      return srvDiscount;
+    }
+    return srvPrice;
+  }
+  if (item.package) {
+    const pkgPrice = Number(item.package.price) || 0;
+    const pkgDiscount = typeof item.package.discountPrice === 'number' ? item.package.discountPrice : null;
+    if (pkgDiscount !== null && pkgDiscount > 0 && pkgDiscount < pkgPrice) {
+      return pkgDiscount;
+    }
+    return pkgPrice;
+  }
+  return Number(item.price) || 0;
+}
+
+/**
  * Helper to calculate subtotal, discount, tax, and total for a cart
  */
 async function calculateCartSummary(cart: any, customerId?: string) {
@@ -30,8 +66,8 @@ async function calculateCartSummary(cart: any, customerId?: string) {
       hasPackage = true;
     }
 
-    const originalPrice = item.service?.price || item.package?.price || item.price || 0;
-    const discountedPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+    const originalPrice = getItemOriginalPrice(item);
+    const discountedPrice = getItemDiscountedPrice(item);
 
     originalServiceTotal += originalPrice;
     discountedSubtotal += discountedPrice;
@@ -162,6 +198,18 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       });
     }
 
+    // Sync cart item prices with live service/package pricing
+    for (const item of cart.items) {
+      const currentPrice = getItemDiscountedPrice(item);
+      if (item.price !== currentPrice) {
+        await prisma.cartItem.update({
+          where: { id: item.id },
+          data: { price: currentPrice },
+        });
+        item.price = currentPrice;
+      }
+    }
+
     const [summary, membershipSummary, customer, rewardSettings, activeBatches] = await Promise.all([
       calculateCartSummary(cart),
       getCustomerMembershipSummary(customerId),
@@ -277,7 +325,9 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       if (!service.isActive) {
         throw new AppError('This service is currently unavailable', 400);
       }
-      price = service.discountPrice > 0 ? service.discountPrice : service.price;
+      price = (service.discountPrice && service.discountPrice > 0 && service.discountPrice < service.price)
+        ? service.discountPrice
+        : service.price;
       if (typeof service.duration === 'number' && service.duration > 0) {
         itemDuration = service.duration;
       }
@@ -289,7 +339,9 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       if (!pkg) {
         throw new AppError('Package not found', 404);
       }
-      price = pkg.discountPrice > 0 ? pkg.discountPrice : pkg.price;
+      price = (pkg.discountPrice && pkg.discountPrice > 0 && pkg.discountPrice < pkg.price)
+        ? pkg.discountPrice
+        : pkg.price;
       const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
       if (totalPkgDuration > 0) {
         itemDuration = totalPkgDuration;
@@ -532,8 +584,7 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
             // Check minimum order amount for referral code
             let currentSubtotal = 0;
             for (const item of cart.items) {
-              const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
-              currentSubtotal += itemPrice;
+              currentSubtotal += getItemDiscountedPrice(item);
             }
             if (currentSubtotal < refResult.minOrderAmount) {
               throw new AppError(`Minimum order amount of ₹${refResult.minOrderAmount} is required to apply this referral code`, 400);
@@ -569,8 +620,7 @@ export const applyCoupon = async (req: Request, res: Response): Promise<void> =>
         // Calculate cart subtotal
         let currentSubtotal = 0;
         for (const item of cart.items) {
-          const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
-          currentSubtotal += itemPrice;
+          currentSubtotal += getItemDiscountedPrice(item);
         }
 
         if (offer.minCartValue && offer.minCartValue > 0 && currentSubtotal < offer.minCartValue) {

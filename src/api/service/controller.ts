@@ -101,6 +101,10 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     }
 
     const normalizedSacCode = sacCode.trim();
+    const normalizedDiscountPrice =
+      discountPrice !== undefined && discountPrice !== null && Number(discountPrice) > 0
+        ? Math.round(Number(discountPrice))
+        : 0;
 
     // Create service in database
     const service = await prisma.service.create({
@@ -111,7 +115,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
         nickName,
         description,
         price,
-        discountPrice,
+        discountPrice: normalizedDiscountPrice,
         serviceGender,
         primaryImage,
         images,
@@ -429,6 +433,11 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       }
     }
 
+    const normalizedDiscountPrice =
+      discountPrice !== undefined
+        ? (discountPrice !== null && Number(discountPrice) > 0 ? Math.round(Number(discountPrice)) : 0)
+        : existingService.discountPrice;
+
     const updatedService = await prisma.service.update({
       where: { id },
       data: {
@@ -438,7 +447,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
         nickName: nickName !== undefined ? nickName : existingService.nickName,
         description: description !== undefined ? description : existingService.description,
         price: price !== undefined ? price : existingService.price,
-        discountPrice: discountPrice !== undefined ? discountPrice : existingService.discountPrice,
+        discountPrice: normalizedDiscountPrice,
         saloonId: saloonId !== undefined ? saloonId : existingService.saloonId,
         primaryImage: primaryImage !== undefined ? primaryImage : existingService.primaryImage,
         images: images !== undefined ? images : existingService.images,

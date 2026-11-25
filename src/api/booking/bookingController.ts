@@ -661,9 +661,11 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanServiceId = serviceIdToLookup;
         if (price === 0) {
-          const menuPrice = Number(srv.price) || 0;
+          const menuPrice = (srv.discountPrice > 0 && srv.discountPrice < srv.price)
+            ? Number(srv.discountPrice)
+            : (Number(srv.price) || 0);
           const tax = Math.round(menuPrice * 0.05 * 100) / 100;
-          price = Math.round(menuPrice + tax)
+          price = Math.round(menuPrice + tax);
         }
         if (typeof srv.duration === 'number' && srv.duration > 0) {
           itemDuration = srv.duration;
@@ -682,9 +684,11 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanPackageId = packageIdToLookup;
         if (price === 0) {
-          const menuPrice = Number(pkg.price) || 0;
+          const menuPrice = (pkg.discountPrice > 0 && pkg.discountPrice < pkg.price)
+            ? Number(pkg.discountPrice)
+            : (Number(pkg.price) || 0);
           const tax = Math.round(menuPrice * 0.05 * 100) / 100;
-          price = Math.round(menuPrice + tax)
+          price = Math.round(menuPrice + tax);
         }
         const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
         if (totalPkgDuration > 0) {

@@ -19,6 +19,7 @@ import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
 import { RewardTxType, PaymentMode } from '../../generated/prisma/enums';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
+import { getItemOriginalPrice, getItemDiscountedPrice } from '../cart/cartController';
 
 // Initialize Razorpay client instance
 const razorpay = new Razorpay({
@@ -39,8 +40,8 @@ async function getCartTotalAndDiscount(cart: any) {
     if (item.packageId || item.package) {
       hasPackage = true;
     }
-    const itemOriginalPrice = item.service?.price || item.package?.price || item.price || 0;
-    const itemPrice = item.price || item.service?.discountPrice || item.service?.price || item.package?.discountPrice || item.package?.price || 0;
+    const itemOriginalPrice = getItemOriginalPrice(item);
+    const itemPrice = getItemDiscountedPrice(item);
 
     originalServiceTotal += itemOriginalPrice;
     subtotal += itemPrice;
@@ -253,14 +254,19 @@ export async function createBookingAndClearCart(
         couponCode: savedCouponCode,
         paymentId: payment ? payment.id : null,
         items: {
-          create: cart.items.map((item) => ({
-            serviceId: item.serviceId,
-            packageId: item.packageId,
-            staffId: item.staffId,
-            date: item.date,
-            timeSlot: item.timeSlot || '',
-            price: item.price,
-          })),
+          create: cart.items.map((item) => {
+            const itemPrice = isMembershipPayment
+              ? getItemOriginalPrice(item)
+              : getItemDiscountedPrice(item);
+            return {
+              serviceId: item.serviceId,
+              packageId: item.packageId,
+              staffId: item.staffId,
+              date: item.date,
+              timeSlot: item.timeSlot || '',
+              price: itemPrice,
+            };
+          }),
         },
       },
       include: {
