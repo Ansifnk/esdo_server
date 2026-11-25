@@ -11,6 +11,7 @@ import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
+import { validateAndCalculateCouponDiscount } from './bookingCouponService';
 
 /**
  * GET /api/bookings (Customer)
@@ -851,7 +852,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       });
     }
 
-    // Validate Discount
+    // Validate Manual Discount
     let numericDiscount = 0;
     if (discount !== undefined && discount !== null) {
       numericDiscount = Number(discount);
@@ -863,7 +864,26 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       }
     }
 
-    const balanceAfterDiscount = Math.max(0, subtotal - numericDiscount);
+    // Validate and calculate Coupon Discount
+    let finalCouponCode = '';
+    let couponDiscount = 0;
+    const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
+    if (!isDummy && sanitizedCouponCode) {
+      if (paymentMode === PaymentMode.MEMBERSHIP) {
+        throw new AppError('Coupon codes cannot be applied when paying with membership.', 400);
+      }
+      const couponResult = await validateAndCalculateCouponDiscount({
+        couponCode: sanitizedCouponCode,
+        customerId: targetCustomerId,
+        subtotal,
+        saloonId: targetSaloonId,
+      });
+      finalCouponCode = couponResult.couponCode;
+      couponDiscount = couponResult.couponDiscount;
+    }
+
+    const totalDiscount = Math.min(subtotal, numericDiscount + couponDiscount);
+    const balanceAfterDiscount = Math.max(0, subtotal - totalDiscount);
     const effectivePaymentStatus = paymentMode === PaymentMode.MEMBERSHIP ? PaymentStatus.SUCCESS : paymentStatus;
 
     // Validate and Calculate membership deduction if requested or if paymentMode is MEMBERSHIP
@@ -894,31 +914,6 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
 
     const totalAmount = Math.max(0, balanceAfterDiscount - actualMembershipUsed);
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
-
-    if (sanitizedCouponCode) {
-      const couponOffer = await prisma.offer.findFirst({
-        where: {
-          couponCode: { equals: sanitizedCouponCode, mode: 'insensitive' },
-          isActive: true,
-        },
-      });
-
-      if (couponOffer && couponOffer.onlyForFirstService) {
-        if (!targetCustomerId) {
-          throw new AppError('This coupon is valid only for your first service.', 400);
-        }
-        const existingBookingCount = await prisma.booking.count({
-          where: {
-            customerId: targetCustomerId,
-            status: { notIn: ['CANCELLED', 'DUMMY_BOOKING'] },
-          },
-        });
-        if (existingBookingCount > 0) {
-          throw new AppError('This coupon is valid only for your first service.', 400);
-        }
-      }
-    }
 
     // Deduplication guard: check if an identical booking was created in the last 10 seconds
     const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
@@ -1003,10 +998,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           paymentStatus: effectivePaymentStatus,
           paymentMode,
           subtotal,
-          discount: numericDiscount,
+          discount: totalDiscount,
           membershipUsed: actualMembershipUsed,
           totalAmount,
-          couponCode: sanitizedCouponCode,
+          couponCode: finalCouponCode,
           items: {
             create: processedItems.map((item) => ({
               serviceId: item.serviceId,
@@ -1080,6 +1075,50 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
   } catch (error: any) {
     const statusCode = error instanceof AppError ? error.status : (error.status || 500);
     res.json(new AppResponse(error.message || 'Failed to create booking', {}, statusCode));
+  }
+};
+
+/**
+ * POST /api/bookings/admin/validate-coupon
+ * Validate a coupon or referral code for an admin booking and return the calculated discount
+ */
+export const validateAdminBookingCoupon = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      couponCode = '',
+      customerId,
+      subtotal = 0,
+      saloonId,
+      paymentMode,
+    } = req.body;
+
+    if (paymentMode === PaymentMode.MEMBERSHIP) {
+      throw new AppError('Coupon codes cannot be applied when paying with membership.', 400);
+    }
+
+    const roles = (req.user?.roles || []).map((r: any) => r.role);
+    const isAdmin = roles.includes('ADMIN');
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const targetSaloonId = isAdmin && !isSuperAdmin
+      ? ((req.user as any)?.saloonId || saloonId || undefined)
+      : (saloonId || undefined);
+
+    const numericSubtotal = Number(subtotal);
+    if (isNaN(numericSubtotal) || numericSubtotal < 0) {
+      throw new AppError('Subtotal must be a valid non-negative number', 400);
+    }
+
+    const result = await validateAndCalculateCouponDiscount({
+      couponCode: typeof couponCode === 'string' ? couponCode : '',
+      customerId: typeof customerId === 'string' && customerId.trim() ? customerId.trim() : null,
+      subtotal: numericSubtotal,
+      saloonId: typeof targetSaloonId === 'string' && targetSaloonId.trim() ? targetSaloonId.trim() : null,
+    });
+
+    res.json(new AppResponse('Coupon validated successfully', result));
+  } catch (error: any) {
+    const statusCode = error instanceof AppError ? error.status : (error.status || 500);
+    res.json(new AppResponse(error.message || 'Failed to validate coupon', {}, statusCode));
   }
 };
 

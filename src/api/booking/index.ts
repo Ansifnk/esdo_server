@@ -8,6 +8,7 @@ import {
   getAdminBookingById,
   updateBookingStatus,
   createAdminBooking,
+  validateAdminBookingCoupon,
 } from './bookingController';
 import { authenticate, hasAuth } from '../../middlewares/auth';
 import { Role } from '../../generated/prisma/enums';
@@ -16,6 +17,7 @@ const router = Router();
 
 router.get('/', authenticate, getBookings);
 router.get('/admin/all', authenticate, hasAuth({ anyRole: [Role.ADMIN, Role.SUPER_ADMIN] }), getAdminBookings);
+router.post('/admin/validate-coupon', authenticate, hasAuth({ anyRole: [Role.ADMIN, Role.SUPER_ADMIN] }), validateAdminBookingCoupon);
 router.post('/admin', authenticate, hasAuth({ anyRole: [Role.ADMIN, Role.SUPER_ADMIN] }), createAdminBooking);
 router.get('/:id', authenticate, getBookingById);
 router.put('/:id/status', authenticate, hasAuth({ anyRole: [Role.ADMIN, Role.SUPER_ADMIN] }), updateBookingStatus);
