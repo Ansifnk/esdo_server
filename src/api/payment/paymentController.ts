@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET } from '../../configs/env';
-import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
+import { generateOrGetInvoiceForBooking, isMembershipOnlyBooking } from '../invoice/invoiceService';
 import {
   extractDateMatchKey,
   normalizeTimeSlot,
@@ -326,11 +326,13 @@ export async function createBookingAndClearCart(
     return newBooking;
   });
 
-  // Automatically generate invoice upon booking & payment completion
-  try {
-    await generateOrGetInvoiceForBooking(booking.id);
-  } catch (invErr) {
-    console.error('Failed to auto-generate invoice:', invErr);
+  // Automatically generate invoice upon booking & payment completion (skip for membership-paid bookings)
+  if (!isMembershipPayment && !isMembershipOnlyBooking(booking)) {
+    try {
+      await generateOrGetInvoiceForBooking(booking.id);
+    } catch (invErr) {
+      console.error('Failed to auto-generate invoice:', invErr);
+    }
   }
 
   // Send Booking Details SMS to customer

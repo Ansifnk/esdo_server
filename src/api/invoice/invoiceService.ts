@@ -58,6 +58,22 @@ export async function getNextInvoiceNumber(
 }
 
 /**
+ * Returns true when a booking was paid entirely using membership balance
+ * (no invoice should be generated for such bookings).
+ */
+export function isMembershipOnlyBooking(booking: {
+  paymentMode?: string | null;
+  membershipUsed?: number | null;
+  totalAmount?: number | null;
+}): boolean {
+  const mode = typeof booking.paymentMode === 'string' ? booking.paymentMode.trim().toUpperCase() : '';
+  if (mode === 'MEMBERSHIP') {
+    return true;
+  }
+  return Number(booking.membershipUsed || 0) > 0 && Number(booking.totalAmount || 0) === 0;
+}
+
+/**
  * Generate or retrieve an invoice for a completed booking
  */
 export async function generateOrGetInvoiceForBooking(bookingId: string) {
@@ -120,6 +136,10 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
 
   if (booking.paymentStatus !== 'SUCCESS') {
     throw new AppError('Invoice can only be generated for paid bookings', 400);
+  }
+
+  if (isMembershipOnlyBooking(booking)) {
+    throw new AppError('Invoices are not generated for bookings paid with membership balance', 400);
   }
 
   // Snapshot item details - store standard ISO strings in database

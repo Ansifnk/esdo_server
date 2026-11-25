@@ -5,7 +5,7 @@ import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
 import { BookingStatus, PaymentStatus, PaymentMode, Role } from '../../generated/prisma/enums';
-import { generateOrGetInvoiceForBooking } from '../invoice/invoiceService';
+import { generateOrGetInvoiceForBooking, isMembershipOnlyBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
@@ -439,7 +439,8 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
     if (
       (updatedBooking.status === 'CONFIRMED' || updatedBooking.status === 'COMPLETED') &&
       updatedBooking.paymentStatus === 'SUCCESS' &&
-      updatedBooking.customerId
+      updatedBooking.customerId &&
+      !isMembershipOnlyBooking(updatedBooking)
     ) {
       try {
         await generateOrGetInvoiceForBooking(updatedBooking.id);
@@ -926,7 +927,8 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       !isDummy &&
       (newBooking.status === 'CONFIRMED' || newBooking.status === 'COMPLETED') &&
       newBooking.paymentStatus === 'SUCCESS' &&
-      newBooking.customerId
+      newBooking.customerId &&
+      !isMembershipOnlyBooking(newBooking)
     ) {
       try {
         await generateOrGetInvoiceForBooking(newBooking.id);
