@@ -4,10 +4,11 @@ import { prisma } from '../../lib/prisma';
 import AppResponse from '../../models/AppResponse';
 import AppError from '../../models/AppError';
 import { getPagination, getPaginationMeta } from '../../utils/pagination';
-import { BookingStatus, PaymentStatus, PaymentMode, Role } from '../../generated/prisma/enums';
+import { BookingStatus, PaymentStatus, PaymentMode, Role, RewardTxType } from '../../generated/prisma/enums';
 import { generateOrGetInvoiceForBooking, isMembershipOnlyBooking } from '../invoice/invoiceService';
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
+import { referralService } from '../rewards/referralService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
 import { sendBookingDetailsSms } from '../../utils/smsUtils';
 
@@ -373,6 +374,73 @@ export const getBookingById = async (req: Request, res: Response): Promise<void>
 };
 
 /**
+ * Credit spend-earn reward coins and trigger referral qualification for an eligible booking.
+ * Safe against duplicate crediting when called across creation and status updates.
+ */
+async function grantBookingRewardsIfEligible(
+  booking: {
+    id: string;
+    bookingNumber: string;
+    customerId: string | null;
+    status: BookingStatus;
+    paymentStatus: PaymentStatus;
+    subtotal: number;
+    totalAmount: number;
+    pointsEarned: number;
+  },
+  tx: any
+): Promise<number> {
+  if (
+    !booking.customerId ||
+    (booking.status !== BookingStatus.CONFIRMED && booking.status !== BookingStatus.COMPLETED) ||
+    booking.paymentStatus !== PaymentStatus.SUCCESS
+  ) {
+    return booking.pointsEarned;
+  }
+
+  let pointsEarned = booking.pointsEarned;
+
+  if (pointsEarned === 0) {
+    const existingEarnTx = await tx.rewardTransaction.findFirst({
+      where: {
+        bookingId: booking.id,
+        type: RewardTxType.SPEND_EARN,
+      },
+    });
+
+    if (!existingEarnTx) {
+      const earned = await rewardCoinService.calculateCoinsEarned(booking.subtotal);
+      if (earned > 0) {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { pointsEarned: earned },
+        });
+        await rewardCoinService.creditCoins({
+          customerId: booking.customerId,
+          amount: earned,
+          type: RewardTxType.SPEND_EARN,
+          bookingId: booking.id,
+          notes: `Earned from booking ${booking.bookingNumber}`,
+          externalTx: tx,
+        });
+        pointsEarned = earned;
+      }
+    }
+  }
+
+  await referralService.handleBookingCompletion(
+    {
+      id: booking.id,
+      customerId: booking.customerId,
+      totalAmount: booking.totalAmount,
+    },
+    tx
+  );
+
+  return pointsEarned;
+}
+
+/**
  * PUT /api/bookings/:id/status
  * Update status and/or paymentStatus of a booking (Admin only)
  */
@@ -415,25 +483,30 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
       }
     }
 
-    const updatedBooking = await prisma.booking.update({
-      where: { id: String(id) },
-      data: updateData,
-      include: {
-        customer: true,
-        saloon: true,
-        payment: true,
-        items: {
-          include: {
-            service: true,
-            package: {
-              include: {
-                services: true,
+    const updatedBooking = await prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.update({
+        where: { id: String(id) },
+        data: updateData,
+        include: {
+          customer: true,
+          saloon: true,
+          payment: true,
+          items: {
+            include: {
+              service: true,
+              package: {
+                include: {
+                  services: true,
+                },
               },
+              staff: true,
             },
-            staff: true,
           },
         },
-      },
+      });
+
+      const pointsEarned = await grantBookingRewardsIfEligible(booking, tx);
+      return { ...booking, pointsEarned };
     });
 
     if (
@@ -920,7 +993,9 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         await deductCustomerMembershipBalance(targetCustomerId, actualMembershipUsed, booking.id, tx);
       }
 
-      return booking;
+      const pointsEarned = await grantBookingRewardsIfEligible(booking, tx);
+
+      return { ...booking, pointsEarned };
     });
 
     if (
