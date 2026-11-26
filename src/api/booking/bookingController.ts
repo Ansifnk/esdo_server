@@ -693,6 +693,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
 
     // Process, validate & calculate prices for items
     let subtotal = 0;
+    let bookingHasPackage = false;
     interface AdminProcessedItem {
       serviceId: string | null;
       packageId: string | null;
@@ -758,16 +759,19 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanServiceId = serviceIdToLookup;
         if (price === 0) {
-          const menuPrice = (srv.discountPrice > 0 && srv.discountPrice < srv.price)
-            ? Number(srv.discountPrice)
-            : (Number(srv.price) || 0);
-          const tax = Math.round(menuPrice * 0.05 * 100) / 100;
-          price = Math.round(menuPrice + tax);
+          if (paymentMode === PaymentMode.MEMBERSHIP) {
+            price = Number(srv.price) || 0;
+          } else {
+            price = (srv.discountPrice > 0 && srv.discountPrice < srv.price)
+              ? Number(srv.discountPrice)
+              : (Number(srv.price) || 0);
+          }
         }
         if (typeof srv.duration === 'number' && srv.duration > 0) {
           itemDuration = srv.duration;
         }
       } else if (hasPackage) {
+        bookingHasPackage = true;
         const packageIdToLookup = item.packageId.trim();
         const pkg = await prisma.package.findUnique({
           where: { id: packageIdToLookup },
@@ -781,11 +785,9 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         }
         cleanPackageId = packageIdToLookup;
         if (price === 0) {
-          const menuPrice = (pkg.discountPrice > 0 && pkg.discountPrice < pkg.price)
+          price = (pkg.discountPrice > 0 && pkg.discountPrice < pkg.price)
             ? Number(pkg.discountPrice)
             : (Number(pkg.price) || 0);
-          const tax = Math.round(menuPrice * 0.05 * 100) / 100;
-          price = Math.round(menuPrice + tax);
         }
         const totalPkgDuration = pkg.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0;
         if (totalPkgDuration > 0) {
@@ -852,9 +854,15 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       });
     }
 
-    // Validate Manual Discount
+    if (!isDummy && paymentMode === PaymentMode.MEMBERSHIP && bookingHasPackage) {
+      throw new AppError('Packages cannot be purchased using membership balance. Please choose another payment mode.', 400);
+    }
+
+    const isMembershipMode = !isDummy && paymentMode === PaymentMode.MEMBERSHIP;
+
+    // Validate Manual Discount (not applicable for membership or dummy)
     let numericDiscount = 0;
-    if (discount !== undefined && discount !== null) {
+    if (!isDummy && !isMembershipMode && discount !== undefined && discount !== null) {
       numericDiscount = Number(discount);
       if (isNaN(numericDiscount) || numericDiscount < 0) {
         throw new AppError('Discount must be a valid non-negative number', 400);
@@ -869,7 +877,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
     let couponDiscount = 0;
     const sanitizedCouponCode = typeof couponCode === 'string' ? couponCode.trim() : '';
     if (!isDummy && sanitizedCouponCode) {
-      if (paymentMode === PaymentMode.MEMBERSHIP) {
+      if (isMembershipMode) {
         throw new AppError('Coupon codes cannot be applied when paying with membership.', 400);
       }
       const couponResult = await validateAndCalculateCouponDiscount({
@@ -882,14 +890,16 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       couponDiscount = couponResult.couponDiscount;
     }
 
-    const totalDiscount = Math.min(subtotal, numericDiscount + couponDiscount);
-    const balanceAfterDiscount = Math.max(0, subtotal - totalDiscount);
-    const effectivePaymentStatus = paymentMode === PaymentMode.MEMBERSHIP ? PaymentStatus.SUCCESS : paymentStatus;
+    const totalDiscount = isMembershipMode ? 0 : Math.min(subtotal, numericDiscount + couponDiscount);
+    const balanceAfterDiscount = Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100);
+    const taxAmount = (isDummy || isMembershipMode) ? 0 : Math.round(balanceAfterDiscount * 0.05 * 100) / 100;
+    const payableBeforeMembership = Math.round((balanceAfterDiscount + taxAmount) * 100) / 100;
+    const effectivePaymentStatus = isMembershipMode ? PaymentStatus.SUCCESS : paymentStatus;
 
     // Validate and Calculate membership deduction if requested or if paymentMode is MEMBERSHIP
     let actualMembershipUsed = 0;
     const requestedMemUsed =
-      paymentMode === PaymentMode.MEMBERSHIP &&
+      isMembershipMode &&
         (membershipUsed === undefined || membershipUsed === null || Number(membershipUsed) === 0)
         ? balanceAfterDiscount
         : membershipUsed;
@@ -905,14 +915,16 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         if (numMemUsed > memSummary.totalBalance) {
           throw new AppError(`Insufficient membership balance. Customer available balance is ₹${memSummary.totalBalance}`, 400);
         }
-        if (numMemUsed > balanceAfterDiscount) {
+        if (numMemUsed > payableBeforeMembership) {
           throw new AppError('Membership amount used cannot exceed the payable amount after discount', 400);
         }
         actualMembershipUsed = numMemUsed;
       }
     }
 
-    const totalAmount = Math.max(0, balanceAfterDiscount - actualMembershipUsed);
+    const totalAmount = isMembershipMode
+      ? Math.max(0, Math.round((balanceAfterDiscount - actualMembershipUsed) * 100) / 100)
+      : Math.max(0, Math.round((payableBeforeMembership - actualMembershipUsed) * 100) / 100);
     const bookingNumber = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     // Deduplication guard: check if an identical booking was created in the last 10 seconds
@@ -999,6 +1011,8 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           paymentMode,
           subtotal,
           discount: totalDiscount,
+          couponDiscount: isMembershipMode ? 0 : couponDiscount,
+          rewardDiscount: 0,
           membershipUsed: actualMembershipUsed,
           totalAmount,
           couponCode: finalCouponCode,

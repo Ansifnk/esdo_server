@@ -434,6 +434,8 @@ model Booking {
   paymentMode            PaymentMode?            @default(CASH)
   subtotal               Float
   discount               Float                   @default(0)
+  couponDiscount         Float                   @default(0)
+  rewardDiscount         Float                   @default(0)
   totalAmount            Float
   pointsUsed             Int                     @default(0)
   pointsEarned           Int                     @default(0)
@@ -521,6 +523,8 @@ model Invoice {
   saloon        Saloon?  @relation(fields: [saloonId], references: [id], onDelete: SetNull)
   subtotal      Float
   discount      Float    @default(0)
+  couponDiscount Float   @default(0)
+  rewardDiscount Float   @default(0)
   totalAmount   Float
   items         Json     @default("[]")
   issuedAt      DateTime @default(now())

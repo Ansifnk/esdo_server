@@ -179,6 +179,8 @@ export async function createBookingAndClearCart(
 
   let bookingSubtotal = 0;
   let finalDiscount = 0;
+  let actualCouponDiscount = 0;
+  let actualRewardDiscount = 0;
   let totalAmount = 0;
   let actualMembershipUsed = 0;
   let actualPointsUsed = 0;
@@ -222,6 +224,8 @@ export async function createBookingAndClearCart(
       });
 
     actualPointsUsed = allowedPoints;
+    actualCouponDiscount = couponDiscount;
+    actualRewardDiscount = pointsDiscountAmount;
     finalDiscount = couponDiscount + pointsDiscountAmount;
     const taxableBase = Math.max(0, subtotal - finalDiscount);
 
@@ -266,6 +270,8 @@ export async function createBookingAndClearCart(
           : (paymentModeOverride || PaymentMode.UPI),
         subtotal: bookingSubtotal,
         discount: finalDiscount,
+        couponDiscount: actualCouponDiscount,
+        rewardDiscount: actualRewardDiscount,
         totalAmount,
         pointsUsed: actualPointsUsed,
         membershipUsed: actualMembershipUsed,

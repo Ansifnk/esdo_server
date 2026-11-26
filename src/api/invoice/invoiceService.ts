@@ -143,16 +143,23 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
   }
 
   // Snapshot item details - store standard ISO strings in database
-  const itemSnapshots = (booking.items || []).map((item) => ({
-    id: item.id,
-    name: item.service?.name || item.package?.name || 'Appointment Item',
-    type: item.packageId ? 'Package' : 'Service',
-    sacCode: item.service?.sacCode || null,
-    staffName: item.staff?.name || null,
-    date: item.date || new Date().toISOString(),
-    timeSlot: item.timeSlot || '',
-    price: item.price,
-  }));
+  const itemSnapshots = (booking.items || []).map((item) => {
+    const actualPrice = Math.round((Number(item.service?.price ?? item.package?.price ?? item.price) || 0) * 100) / 100;
+    const price = Math.round((Number(item.price) || 0) * 100) / 100;
+    const discountAmount = Math.max(0, Math.round((actualPrice - price) * 100) / 100);
+    return {
+      id: item.id,
+      name: item.service?.name || item.package?.name || 'Appointment Item',
+      type: item.packageId ? 'Package' : 'Service',
+      sacCode: item.service?.sacCode || null,
+      staffName: item.staff?.name || null,
+      date: item.date || new Date().toISOString(),
+      timeSlot: item.timeSlot || '',
+      actualPrice,
+      discountAmount,
+      price,
+    };
+  });
 
   // Create invoice record with retry logic for unique constraint race condition
   let attempts = 0;
@@ -174,6 +181,8 @@ export async function generateOrGetInvoiceForBooking(bookingId: string) {
           saloonId: booking.saloonId || null,
           subtotal: booking.subtotal,
           discount: booking.discount,
+          couponDiscount: booking.couponDiscount ?? 0,
+          rewardDiscount: booking.rewardDiscount ?? 0,
           totalAmount: booking.totalAmount,
           items: itemSnapshots,
         },
