@@ -610,6 +610,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       .optional()
       .isFloat({ min: 0 }).withMessage('Discount must be a non-negative number')
       .run(req);
+    await body('pointsUsed')
+      .optional()
+      .isInt({ min: 0 }).withMessage('Reward points used must be a non-negative integer')
+      .run(req);
     await body('status')
       .optional()
       .isIn(Object.values(BookingStatus)).withMessage(`Invalid booking status. Allowed: ${Object.values(BookingStatus).join(', ')}`)
@@ -639,6 +643,7 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       discount = 0,
       couponCode = '',
       membershipUsed = 0,
+      pointsUsed = 0,
     } = req.body;
 
     const roles = (req.user?.roles || []).map((r: any) => r.role);
@@ -890,7 +895,30 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
       couponDiscount = couponResult.couponDiscount;
     }
 
-    const totalDiscount = isMembershipMode ? 0 : Math.min(subtotal, numericDiscount + couponDiscount);
+    // Validate and calculate Reward Points redemption
+    let actualPointsUsed = 0;
+    let actualRewardDiscount = 0;
+    const requestedPoints = Math.max(0, Math.floor(Number(pointsUsed) || 0));
+    if (!isDummy && requestedPoints > 0) {
+      if (isMembershipMode) {
+        throw new AppError('Reward points cannot be redeemed when paying with membership.', 400);
+      }
+      if (!existingCustomer) {
+        throw new AppError('Customer is required to redeem reward points.', 400);
+      }
+      const redemption = await rewardCoinService.validateRedemption({
+        customerPoints: existingCustomer.points || 0,
+        subtotal,
+        pointsToUse: requestedPoints,
+        hasCoupon: Boolean(finalCouponCode),
+      });
+      actualPointsUsed = redemption.allowedPoints;
+      actualRewardDiscount = redemption.discountAmount;
+    }
+
+    const totalDiscount = isMembershipMode
+      ? 0
+      : Math.min(subtotal, numericDiscount + couponDiscount + actualRewardDiscount);
     const balanceAfterDiscount = Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100);
     const taxAmount = (isDummy || isMembershipMode) ? 0 : Math.round(balanceAfterDiscount * 0.05 * 100) / 100;
     const payableBeforeMembership = Math.round((balanceAfterDiscount + taxAmount) * 100) / 100;
@@ -1012,7 +1040,8 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
           subtotal,
           discount: totalDiscount,
           couponDiscount: isMembershipMode ? 0 : couponDiscount,
-          rewardDiscount: 0,
+          rewardDiscount: isMembershipMode ? 0 : actualRewardDiscount,
+          pointsUsed: isMembershipMode ? 0 : actualPointsUsed,
           membershipUsed: actualMembershipUsed,
           totalAmount,
           couponCode: finalCouponCode,
@@ -1046,6 +1075,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
 
       if (actualMembershipUsed > 0 && targetCustomerId) {
         await deductCustomerMembershipBalance(targetCustomerId, actualMembershipUsed, booking.id, tx);
+      }
+
+      if (actualPointsUsed > 0 && targetCustomerId) {
+        await rewardCoinService.deductCoinsFIFO(targetCustomerId, actualPointsUsed, booking.id, tx);
       }
 
       const pointsEarned = await grantBookingRewardsIfEligible(booking, tx);
