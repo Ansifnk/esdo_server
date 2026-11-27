@@ -10,7 +10,7 @@ import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '.
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
 import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
-import { sendBookingDetailsSms } from '../../utils/smsUtils';
+import { sendBookingDetailsSms, sendServiceAfterCareSms } from '../../utils/smsUtils';
 import { validateAndCalculateCouponDiscount } from './bookingService';
 
 /**
@@ -464,6 +464,47 @@ async function grantBookingRewardsIfEligible(
 }
 
 /**
+ * Send aftercare SMS for each unique standalone service in a completed booking
+ * that has a non-empty afterCareMessage. Package items are excluded.
+ */
+async function sendAfterCareSmsForBooking(
+  booking: {
+    customer?: { name?: string | null; phone?: string | null } | null;
+    items: Array<{
+      packageId?: string | null;
+      service?: { id: string; name: string; afterCareMessage?: string | null } | null;
+    }>;
+  },
+  fallbackPhone?: string | null
+): Promise<void> {
+  const phone = booking.customer?.phone || fallbackPhone;
+  if (!phone) return;
+
+  const sentServiceIds = new Set<string>();
+  for (const item of booking.items) {
+    if (item.packageId || !item.service) continue;
+
+    const afterCareMsg = item.service.afterCareMessage?.trim();
+    if (!afterCareMsg || sentServiceIds.has(item.service.id)) continue;
+
+    sentServiceIds.add(item.service.id);
+    try {
+      const smsResult = await sendServiceAfterCareSms(
+        phone,
+        booking.customer?.name,
+        item.service.name,
+        afterCareMsg
+      );
+      if (!smsResult.success) {
+        console.warn('[AFTERCARE SMS FAILED]', smsResult.message || smsResult.error);
+      }
+    } catch (smsErr) {
+      console.error('Failed to send aftercare SMS:', smsErr);
+    }
+  }
+}
+
+/**
  * PUT /api/bookings/:id/status
  * Update status and/or paymentStatus of a booking (Admin only)
  */
@@ -558,6 +599,13 @@ export const updateBookingStatus = async (req: Request, res: Response): Promise<
       } catch (smsErr) {
         console.error('Failed to send booking SMS on status update:', smsErr);
       }
+    }
+
+    if (
+      existing.status !== BookingStatus.COMPLETED &&
+      updatedBooking.status === BookingStatus.COMPLETED
+    ) {
+      await sendAfterCareSmsForBooking(updatedBooking);
     }
 
     if (updatedBooking.status === 'CANCELLED' || updatedBooking.paymentStatus === 'REFUNDED') {
@@ -1111,6 +1159,10 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         } catch (smsErr) {
           console.error('Failed to send booking SMS on admin booking create:', smsErr);
         }
+      }
+
+      if (newBooking.status === BookingStatus.COMPLETED) {
+        await sendAfterCareSmsForBooking(newBooking, existingCustomer?.phone);
       }
     }
 

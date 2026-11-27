@@ -6,6 +6,7 @@ import {
   SMS_PEID,
   SMS_OTP_TEMPLATE_ID,
   SMS_BOOKING_DETAILS_TEMPLATE_ID,
+  SMS_AFTER_CARE_TEMPLATE_ID,
   SMS_TEMPLATE_API_URL,
 } from '../configs/env';
 import { normalizePhone } from './phoneUtils';
@@ -238,10 +239,79 @@ export async function sendBookingDetailsSms(
   }
 }
 
+/**
+ * Send Service Aftercare SMS
+ * Template ID: 1707172112162786649
+ * Message: Hi {username}! Your service {servicename} is completed. Thank you for choosing Es_Do! ✨ Aftercare for {servicename}: {aftercaremessage} Team Es_Do
+ */
+export async function sendServiceAfterCareSms(
+  phone: string,
+  username: string | null | undefined,
+  serviceName: string,
+  afterCareMessage: string
+): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+
+  return {
+    success: false,
+    message: "after care sms temperory unavailable"
+  }
+  try {
+    const normalizedPhone = normalizePhone(phone);
+    const templateId = SMS_AFTER_CARE_TEMPLATE_ID;
+    if (!templateId) {
+      return {
+        success: false,
+        message: 'Aftercare template id not found',
+      };
+    }
+
+    const trimmedAfterCare = afterCareMessage?.trim();
+    if (!trimmedAfterCare) {
+      return {
+        success: false,
+        message: 'Aftercare message is empty',
+      };
+    }
+
+    const safeUsername = username?.trim() || 'Customer';
+    const message = `Hi ${safeUsername}! Your service ${serviceName} is completed. Thank you for choosing Es_Do! ✨ Aftercare for ${serviceName}: ${trimmedAfterCare} Team Es_Do`;
+
+    const result = await sendSms({
+      templateId,
+      mobileNumbers: [normalizedPhone],
+      message,
+      is_Unicode: false,
+    });
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.message || 'Failed to send aftercare SMS',
+        error: result.error,
+        data: result.data,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Aftercare SMS sent successfully',
+      data: result.data,
+    };
+  } catch (error: any) {
+    console.error('[AFTERCARE SMS SERVICE ERROR]', error);
+    return {
+      success: false,
+      message: error?.message || 'Failed to send aftercare SMS',
+      error: error?.message,
+    };
+  }
+}
+
 export const smsUtils = {
   sendSms,
   smsTemplateSend,
   sendBookingDetailsSms,
+  sendServiceAfterCareSms,
   normalizePhone,
 };
 
