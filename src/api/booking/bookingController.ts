@@ -9,7 +9,7 @@ import { generateOrGetInvoiceForBooking, isMembershipOnlyBooking } from '../invo
 import { deductCustomerMembershipBalance, getCustomerMembershipSummary } from '../membership/membershipService';
 import { rewardCoinService } from '../rewards/rewardCoinService';
 import { referralService } from '../rewards/referralService';
-import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap } from '../staff/controller';
+import { isStaffSlotAvailable, normalizeTimeSlot, extractDateMatchKey, doSlotRangesOverlap, timeSlotToMinutes, SECTION_DURATION_MINUTES } from '../staff/controller';
 import { sendBookingDetailsSms, sendServiceAfterCareSms } from '../../utils/smsUtils';
 import { validateAndCalculateCouponDiscount } from './bookingService';
 
@@ -905,6 +905,37 @@ export const createAdminBooking = async (req: Request, res: Response): Promise<v
         duration: itemDuration,
         price,
       });
+    }
+
+    // For dummy bookings, enforce a single stylist, single date, and consecutive 30-minute time slots
+    if (isDummy && processedItems.length > 1) {
+      const firstStaffId = processedItems[0].staffId;
+      const firstDateKey = extractDateMatchKey(processedItems[0].date);
+      const sortedMinutes: number[] = [];
+
+      for (const p of processedItems) {
+        if (p.staffId !== firstStaffId || extractDateMatchKey(p.date) !== firstDateKey) {
+          throw new AppError(
+            'Dummy booking slots must be for the same stylist and date.',
+            400
+          );
+        }
+        const mins = timeSlotToMinutes(p.timeSlot);
+        if (mins === null) {
+          throw new AppError(`Invalid time slot "${p.timeSlot}" for dummy booking.`, 400);
+        }
+        sortedMinutes.push(mins);
+      }
+
+      sortedMinutes.sort((a, b) => a - b);
+      for (let i = 1; i < sortedMinutes.length; i++) {
+        if (sortedMinutes[i] - sortedMinutes[i - 1] !== SECTION_DURATION_MINUTES) {
+          throw new AppError(
+            'Dummy booking time slots must be consecutive 30-minute slots without gaps.',
+            400
+          );
+        }
+      }
     }
 
     if (!isDummy && paymentMode === PaymentMode.MEMBERSHIP && bookingHasPackage) {
